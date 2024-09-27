@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches:
-      - master
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
 
 jobs:
   build:
@@ -21,7 +22,3 @@ jobs:
     - name: Setup Virtual Environment and Install Python Dependencies
       run: |
         sudo make env
-        
-    - name: Clean Environment
-      run: |
-        make clean
