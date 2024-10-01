@@ -28,15 +28,15 @@ env:
 
 	$(PYTHON) setup.py install
 
-	@echo "Virtual environment has been created and dependencies have been installed."
+	@echo Virtual environment has been created and dependencies have been installed.
 
 # Cel: clean - usuwa środowisko wirtualne
 clean:
-	@echo "Cleaning up..."
+	@echo Cleaning up...
 	$(RM)
-	@echo "Done."
+	@echo Done.
 
 # Cel: run - uruchamia aplikację w środowisku wirtualnym bez aktywacji
-run:
-	@echo "Starting the application..."
-	@$(PYTHON) src/main.py || { echo "Błąd: Nie udało się uruchomić aplikacji."; exit 1; }
+run $(VENV_DIR) requirements.txt:
+	@echo Starting the application...
+	@$(PYTHON) src/main.py || echo Could not start the application. Make sure the virtual environment is set up.
