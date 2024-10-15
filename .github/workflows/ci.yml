@@ -12,13 +12,27 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
-    - name: Install depenciencies
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install python3
-        sudo apt-get install make
+        sudo apt-get install -y make
+
     - name: Setup Virtual Environment and Install Python Dependencies
       run: |
         sudo make env
+
+    - name: Run tests
+      run: |
+        source venv/bin/activate
+        pytest
+
+    - name: Deactivate virtual environment
+      run: deactivate
+      if: always()
