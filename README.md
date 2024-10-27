@@ -1,7 +1,5 @@
 [![CI](https://github.com/kubsnn/anomaly-detection/actions/workflows/ci.yml/badge.svg)](https://github.com/kubsnn/anomaly-detection/actions/workflows/ci.yml)
-# Detekcja anomalii z wykorzystaniem Autodekoderów i sieci U-Net
-
--- OPIS TODO --
+# Detekcja anomalii z wykorzystaniem Autodekoderów
 
 ## Wymagania
 
