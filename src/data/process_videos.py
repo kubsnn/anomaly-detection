@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 from pathlib import Path
 import logging
 from tqdm import tqdm
@@ -15,7 +16,7 @@ def setup_logging():
 
 @contextmanager
 def video_capture(path):
-# Safely handle video opening with automatic closing
+    # Safely handle video opening with automatic closing
     cap = cv2.VideoCapture(str(path))
     try:
         if not cap.isOpened():
@@ -23,7 +24,6 @@ def video_capture(path):
         yield cap
     finally:
         cap.release()
-
 
 @contextmanager
 def video_writer(path, fps, size, is_color=False):
@@ -38,54 +38,151 @@ def video_writer(path, fps, size, is_color=False):
         writer.release()
 
 
+def detect_content_area(frame, threshold=30):
+    if frame is None:
+        return None
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
+    target_ratio = 16 / 9
+
+    def is_content_row(values, threshold):
+        std = np.std(values)
+        return std > threshold / 2
+
+    def is_content_col(values, threshold):
+        std = np.std(values)
+        mean = np.mean(values)
+        return std > threshold / 8 or (mean > threshold and mean < 255 - threshold)
+
+    left = 0
+    right = w - 1
+    top = 0
+    bottom = h - 1
+
+    for x in range(w // 2):
+        if is_content_col(gray[:, x], threshold):
+            left = x
+            break
+
+    for x in range(w - 1, w // 2, -1):
+        if is_content_col(gray[:, x], threshold):
+            right = x
+            break
+
+    for y in range(h // 2):
+        if is_content_row(gray[y, :], threshold):
+            top = y
+            break
+
+    for y in range(h - 1, h // 2, -1):
+        if is_content_row(gray[y, :], threshold):
+            bottom = y
+            break
+
+    content_width = right - left
+    content_height = bottom - top
+    current_ratio = content_width / content_height
+
+    # Force 16:9 ratio by cropping excess content
+    if current_ratio < target_ratio:
+        # Video is too tall 4:3 - crop height
+        required_height = int(content_width / target_ratio)
+        excess_height = content_height - required_height
+
+        top += excess_height // 2
+        bottom -= excess_height // 2
+    else:
+        # Video is too wide - crop width
+        required_width = int(content_height * target_ratio)
+        excess_width = content_width - required_width
+
+        left += excess_width // 2
+        right -= excess_width // 2
+
+    # Add a small margin to ensure no white edges
+    margin = 2
+    left = left + margin
+    right = right - margin
+    top = top + margin
+    bottom = bottom - margin
+
+    return (left, right, top, bottom)
+
+
 def process_video(input_path: Path, output_path: Path, target_fps: int = 3,
                   target_size: tuple = (320, 180)):
+    logger = logging.getLogger(__name__)
 
     with video_capture(input_path) as cap:
-        original_fps = int(cap.get(cv2.CAP_PROP_FPS))
-        frame_interval = max(1, original_fps // target_fps)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        content_coords = None
+        sample_frames = 5
+        frame_positions = np.linspace(0, cap.get(cv2.CAP_PROP_FRAME_COUNT) - 1, sample_frames, dtype=int)
 
-        if total_frames <= 0:
-            raise ValueError(f"Invalid frame count in video: {input_path}")
+        lefts, rights, tops, bottoms = [], [], [], []
 
-        with video_writer(output_path, target_fps, target_size) as out:
+        for pos in frame_positions:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
+            ret, frame = cap.read()
+            if not ret:
+                continue
+
+            coords = detect_content_area(frame)
+            if coords:
+                left, right, top, bottom = coords
+                lefts.append(left)
+                rights.append(right)
+                tops.append(top)
+                bottoms.append(bottom)
+
+        if not lefts:
+            raise ValueError(f"Could not detect content area in {input_path}")
+
+        left = int(np.median(lefts))
+        right = int(np.median(rights))
+        top = int(np.median(tops))
+        bottom = int(np.median(bottoms))
+
+        content_coords = (left, right, top, bottom)
+
+        with video_writer(output_path, target_fps, target_size, is_color=False) as out:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+            original_fps = int(cap.get(cv2.CAP_PROP_FPS))
+            frame_interval = max(1, original_fps // target_fps)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
             frame_count = 0
             processed_count = 0
 
-            expected_frames = total_frames // frame_interval
-
-            with tqdm(total=expected_frames,
+            with tqdm(total=total_frames // frame_interval,
                       desc=f"Processing {input_path.name}",
                       leave=False) as pbar:
 
                 while frame_count < total_frames:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_count)
                     ret, frame = cap.read()
-
                     if not ret:
                         break
 
                     if frame_count % frame_interval == 0:
-                        try:
-                            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                        content = frame[top:bottom, left:right]
 
-                            normalized = cv2.normalize(gray, None, 0, 255,
-                                                       cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                        gray = cv2.cvtColor(content, cv2.COLOR_BGR2GRAY)
 
-                            resized = cv2.resize(normalized, target_size,
-                                                 interpolation=cv2.INTER_AREA)
-                            out.write(resized)
-                            processed_count += 1
-                            pbar.update(1)
+                        resized = cv2.resize(gray, target_size,
+                                             interpolation=cv2.INTER_AREA)
 
-                        except cv2.error as e:
-                            raise RuntimeError(f"OpenCV error processing frame {frame_count}: {str(e)}")
+                        normalized = cv2.normalize(resized, None, 0, 255,
+                                                   cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
-                    frame_count += frame_interval
+                        out.write(normalized)
+                        processed_count += 1
+                        pbar.update(1)
 
-                    if processed_count >= expected_frames:
-                        break
+                    frame_count += 1
+
+            logger.debug(f"Processed {processed_count} frames from {input_path.name}")
+            logger.debug(f"Crop coordinates: ({left}, {right}, {top}, {bottom})")
 
     return processed_count
 
@@ -136,7 +233,7 @@ def process_dataset(base_path: str):
 def main():
     logger = setup_logging()
 
-    # dataset base path
+    # dataset path
     base_path = "../../../UBI_FIGHTS"
 
     try:
