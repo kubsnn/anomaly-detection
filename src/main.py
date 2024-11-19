@@ -57,9 +57,11 @@ def main():
     )
 
     logger.info("Starting final evaluation on the test set...")
-    accuracy, mean_loss = evaluate_model(model, test_loader, device, CONFIG['reconstruction_threshold'])
+    accuracy, mean_loss, jaccard, cm = evaluate_model(model, test_loader, device, CONFIG['reconstruction_threshold'])
     logger.info(f"Final Test Accuracy: {accuracy:.2f}%")
     logger.info(f"Final Test Mean Loss: {mean_loss:.6f}")
+    logger.info(f"Final Test Jaccard Index: {jaccard:.6f}")
+    logger.info(f"Final Test Confusion Matrix:\n{cm}")
 
 
 if __name__ == "__main__":
