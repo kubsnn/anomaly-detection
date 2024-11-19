@@ -96,6 +96,8 @@ def choose_pytorch_command(os_name, cuda_version):
     if cuda_version:
         cuda_version = ".".join(cuda_version.split('.')[:2])
         cuda_mapping = {
+            "12.8": "cu124",
+            "12.7": "cu124",
             "12.6": "cu124",
             "12.5": "cu124",
             "12.4": "cu124",

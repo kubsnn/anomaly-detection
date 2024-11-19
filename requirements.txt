@@ -3,3 +3,6 @@ pandas
 matplotlib
 pytest
 tqdm
+opencv-python
+colorlog
+scikit-learn
