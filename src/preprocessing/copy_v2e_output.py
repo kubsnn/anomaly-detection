@@ -19,8 +19,8 @@ def copy_and_convert_videos(base_path: str, logger):
         base_path (str): Base directory containing the `UBI_FIGHTS` dataset.
     """
     base_path = Path(base_path)
-    processed_base = base_path / "videos" / "normal"
-    target_base = base_path / "v2e" / "videos" / "normal"
+    processed_base = base_path / "videos" / "fight"
+    target_base = base_path / "v2e" / "videos" / "fight"
 
     splits = ["train", "test", "val"]
     empty_dirs = []  # Track empty directories

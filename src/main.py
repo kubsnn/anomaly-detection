@@ -53,7 +53,7 @@ def main():
     train_and_evaluate(
         model, train_loader, val_loader, optimizer,
         CONFIG['num_epochs'], device, CONFIG['eval_interval'],
-        CONFIG, startdate
+        CONFIG, startdate, dvs=use_dvs
     )
 
     logger.info("Starting final evaluation on the test set...")
