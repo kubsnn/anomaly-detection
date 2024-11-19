@@ -14,6 +14,17 @@ from tqdm import tqdm
 
 logger = setup_logging(__name__)
 
+def jaccard_index(y_true, y_pred):
+    intersection = torch.sum((y_true == 1) & (y_pred == 1)).item()
+    union = torch.sum((y_true == 1) | (y_pred == 1)).item()
+    return intersection / union if union != 0 else 0
+
+def confusion_matrix(y_true, y_pred, num_classes):
+    cm = torch.zeros((num_classes, num_classes), dtype=torch.int64)
+    for t, p in zip(y_true.view(-1), y_pred.view(-1)):
+        cm[t.long(), p.long()] += 1
+    return cm
+
 def load_model(model_path: str, config_path: str, device: torch.device):
     """
     Load the model and its configuration.
@@ -94,7 +105,7 @@ def prepare_validation_loader(config: dict, use_dvs: bool):
     return val_loader
 
 
-def evaluate_with_metrics(model, loader, device, threshold=0.01):
+def evaluate_with_metrics(model, loader, device, threshold=0.01, num_classes=2):
     """
     Evaluate the model and calculate accuracy and mean loss.
 
@@ -111,31 +122,39 @@ def evaluate_with_metrics(model, loader, device, threshold=0.01):
     total_loss = 0
     correct = 0
     total = 0
-
+    all_y_true = []
+    all_y_pred = []
+    
     with torch.no_grad():
         for batch in tqdm(loader, desc="Evaluating"):
             if isinstance(batch, tuple):  # Handle datasets with labels
                 batch, labels = batch
             else:
                 labels = torch.zeros(batch.size(0))  # Default to 0 (non-anomaly)
-
-            batch = batch.to(device)
-            labels = labels.to(device)
+            
             _, reconstructed = model(batch)
             mse = torch.mean((batch - reconstructed) ** 2, dim=(1, 2, 3, 4))
-
-            total_loss += torch.sum(mse).item()
-            predictions = (mse >= threshold).float()  # Anomaly if mse >= threshold
-
-            correct += torch.sum(predictions == labels).item()
+            total_loss += mse.sum().item()
+            preds = (mse < threshold).long()
+            correct += preds.sum().item()
             total += batch.size(0)
 
+            all_y_true.append(labels)
+            all_y_pred.append(preds)
+            
     accuracy = (correct / total) * 100 if total > 0 else 0
     mean_loss = total_loss / total if total > 0 else 0
+    
+    y_true = torch.cat(all_y_true)
+    y_pred = torch.cat(all_y_pred)
+    jaccard = jaccard_index(y_true, y_pred)
+    cm = confusion_matrix(y_true, y_pred, num_classes)
 
     return {
         "accuracy": accuracy,
         "mean_loss": mean_loss,
+        "jaccard": jaccard,
+        "confusion_matrix": cm
     }
 
 
