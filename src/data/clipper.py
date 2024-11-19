@@ -1,9 +1,11 @@
+# clipper.py
+
+import os  # Import os to handle file paths
 import torch
 from torch.utils.data import Dataset
 import cv2
 import numpy as np
 import logging
-
 
 class VideoClipDataset(Dataset):
     def __init__(self, video_paths, clip_length=16, clip_overlap=0.5, min_clips=1,
@@ -82,13 +84,26 @@ class VideoClipDataset(Dataset):
                             dtype=int
                         )
 
+                # Extract the filename and assign label based on the first character
+                filename = os.path.basename(video_path)
+                first_char = filename[0].upper()  # Ensure it's uppercase for consistency
+
+                if first_char == 'N':
+                    label = 0
+                elif first_char == 'F':
+                    label = 1
+                else:
+                    self.logger.warning(f"Unknown label for file {filename}, defaulting to 0")
+                    label = 0  # Default label if the first character is neither 'N' nor 'F'
+
                 for start in clip_starts:
                     all_clips.append({
                         'video_idx': video_idx,
                         'start_frame': int(start),
                         'end_frame': int(start + self.clip_length),
                         'total_frames': total_frames,
-                        'video_path': video_path
+                        'video_path': video_path,
+                        'label': label  # Include the label in the clip information
                     })
 
             except Exception as e:
@@ -144,17 +159,20 @@ class VideoClipDataset(Dataset):
 
     def __getitem__(self, idx):
         """
-        Get a video clip.
+        Get a video clip and its label.
 
         Args:
             idx (int): Clip index
 
         Returns:
-            torch.Tensor: Video clip tensor of shape [C, T, H, W]
+            tuple: (frames, label)
+                frames: torch.Tensor of shape [C, T, H, W]
+                label: int (0 or 1)
         """
         try:
             clip_info = self.clips[idx]
             video_path = clip_info['video_path']
+            label = clip_info['label']  # Retrieve the label
 
             frames = self._load_clip(
                 video_path,
@@ -169,7 +187,7 @@ class VideoClipDataset(Dataset):
                 frames = self.transform(frames)
                 frames = np.ascontiguousarray(frames)
 
-            # tensor + normalize
+            # Convert to tensor and normalize
             frames = torch.FloatTensor(frames)
             frames = frames.permute(3, 0, 1, 2)  # [C, T, H, W]
             frames = frames / 255.0
@@ -179,7 +197,7 @@ class VideoClipDataset(Dataset):
             assert frames.shape == expected_shape, \
                 f"Wrong shape: got {frames.shape}, expected {expected_shape}"
 
-            return frames
+            return frames, label  # Return both frames and label
 
         except Exception as e:
             self.logger.error(f"Error in __getitem__ for index {idx}: {str(e)}")

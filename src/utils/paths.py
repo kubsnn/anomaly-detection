@@ -4,8 +4,8 @@ from .logger import setup_logging
 logger = setup_logging(__name__)
 
 
-def get_video_paths(base_path, subset_size, use_dvs, split):
-    normal_dir = os.path.join(base_path, 'v2e', 'videos', 'normal') if use_dvs else os.path.join(base_path, 'videos', 'normal')
+def get_video_paths(base_path, subset_size, use_dvs, split, type='normal'):
+    normal_dir = os.path.join(base_path, 'v2e', 'videos', type) if use_dvs else os.path.join(base_path, 'videos', type)
     split_dir = os.path.join(normal_dir, split)
     if not use_dvs:
         split_dir = os.path.join(split_dir, 'processed')

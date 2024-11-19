@@ -18,10 +18,10 @@ def main():
     # Configuration
     CONFIG = {
         'base_path': './data/UBI_FIGHTS',
-        'subset_size': 336,
+        'subset_size': 1000,
         'batch_size': 48,
         'num_epochs': 9,
-        'learning_rate': 4e-4,
+        'learning_rate': 3e-4,
         'clip_length': 16,
         'input_channels': 3,
         'latent_dim': 256,
