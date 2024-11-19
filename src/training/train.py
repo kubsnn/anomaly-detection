@@ -5,7 +5,7 @@ import torch
 logger = setup_logging(__name__)
 
 
-def train_and_evaluate(model, train_loader, val_loader, optimizer, num_epochs, device, eval_interval, config, startdate):
+def train_and_evaluate(model, train_loader, val_loader, optimizer, num_epochs, device, eval_interval, config, startdate, dvs=False):
     best_accuracy = 0.0
     snapshot_dir = "./snapshots"
 
@@ -24,8 +24,8 @@ def train_and_evaluate(model, train_loader, val_loader, optimizer, num_epochs, d
             logger.info(f"Validation {epoch // eval_interval}/{num_epochs // eval_interval}")
             accuracy, mean_loss = evaluate_model(model, val_loader, device, config['reconstruction_threshold'])
             logger.info(f"Accuracy = {accuracy:.2f}%, Loss = {mean_loss:.6f}")
-            save_snapshot(model, config, snapshot_dir, startdate, best=False)
+            save_snapshot(model, config, snapshot_dir, startdate, best=False, dvs=dvs)
 
             if accuracy > best_accuracy:
                 best_accuracy = accuracy
-                save_snapshot(model, config, snapshot_dir, startdate, best=True)
+                save_snapshot(model, config, snapshot_dir, startdate, best=True, dvs=dvs)

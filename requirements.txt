@@ -5,3 +5,4 @@ pytest
 tqdm
 opencv-python
 colorlog
+scikit-learn
