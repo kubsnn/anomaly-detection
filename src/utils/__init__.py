@@ -1,25 +1,10 @@
-"""
-Utility training functions
+from .logger import setup_logging
+from .paths import get_video_paths
+from .snapshots import save_snapshot
+from .evaluation import evaluate_model
 
-This package contains utility functions for model training and evaluation
-such as pretraining autoencoder, computing reconstruction errors, and
-evaluating model performance.
+__ALL__ = ['setup_logging', 'get_video_paths', 'save_snapshot', 'evaluate_model']
 
-Version: 0.1.0
-Author: RocketSteve
-License: MIT
-"""
-from .training import (
-    pretrain_autoencoder,
-    compute_reconstruction_error,
-    evaluate_model
-)
 
-__all__ = [
-    # Training utilities
-    'pretrain_autoencoder',
-    'compute_reconstruction_error',
-    'evaluate_model'
-]
 
 __version__ = '0.1.0'
