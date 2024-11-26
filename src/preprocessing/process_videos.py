@@ -1,39 +1,14 @@
 import cv2
 import numpy as np
 from pathlib import Path
-
 from tqdm import tqdm
 from contextlib import contextmanager
-
 import sys
 sys.path.append('..')
-from utils import setup_logging
-
+from utils.logger import setup_logging
+from frame_sampling import video_capture, video_writer, create_offset_samples
 
 logger = setup_logging(__name__)
-
-@contextmanager
-def video_capture(path):
-    # Safely handle video opening with automatic closing
-    cap = cv2.VideoCapture(str(path))
-    try:
-        if not cap.isOpened():
-            raise IOError(f"Failed to open video: {path}")
-        yield cap
-    finally:
-        cap.release()
-
-@contextmanager
-def video_writer(path, fps, size, is_color=False):
-
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    writer = cv2.VideoWriter(str(path), fourcc, fps, size, isColor=is_color)
-    try:
-        if not writer.isOpened():
-            raise IOError(f"Failed to create video writer: {path}")
-        yield writer
-    finally:
-        writer.release()
 
 
 def detect_content_area(frame, threshold=30):
@@ -108,9 +83,12 @@ def detect_content_area(frame, threshold=30):
     return (left, right, top, bottom)
 
 
-def process_video(input_path: Path, output_path: Path, target_fps: int = 3,
-                  target_size: tuple = (320, 180)):
-
+def process_video(input_path: Path, output_dir: Path, version_start: int,
+                  target_fps: int = 3, target_size: tuple = (320, 180)):
+    """
+    Process a video by detecting content area, cropping, and creating multiple sampled versions.
+    """
+    # First detect content area
     with video_capture(input_path) as cap:
         content_coords = None
         sample_frames = 5
@@ -140,100 +118,108 @@ def process_video(input_path: Path, output_path: Path, target_fps: int = 3,
         top = int(np.median(tops))
         bottom = int(np.median(bottoms))
 
-        content_coords = (left, right, top, bottom)
+    # Create temporary file for cropped video
+    temp_dir = output_dir / "temp"
+    temp_dir.mkdir(exist_ok=True)
+    temp_cropped = temp_dir / f"temp_cropped_{input_path.name}"
 
-        with video_writer(output_path, target_fps, target_size, is_color=False) as out:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    try:
+        # First pass: Crop the video
+        with video_capture(input_path) as cap, \
+                video_writer(temp_cropped, int(cap.get(cv2.CAP_PROP_FPS)),
+                             (right - left, bottom - top), is_color=True) as out:
 
-            original_fps = int(cap.get(cv2.CAP_PROP_FPS))
-            frame_interval = max(1, original_fps // target_fps)
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-            frame_count = 0
-            processed_count = 0
+            for _ in tqdm(range(total_frames), desc="Cropping video", leave=False):
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-            with tqdm(total=total_frames // frame_interval,
-                      desc=f"Processing {input_path.name}",
-                      leave=False) as pbar:
+                cropped = frame[top:bottom, left:right]
+                out.write(cropped)
 
-                while frame_count < total_frames:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
+        # Second pass: Create multiple sampled versions
+        num_versions, output_paths = create_offset_samples(
+            temp_cropped,
+            output_dir,
+            version_number=version_start,
+            source_fps=30,  # Assuming source is 30fps
+            target_fps=target_fps,
+            target_size=target_size,
+            grayscale=True
+        )
 
-                    if frame_count % frame_interval == 0:
-                        content = frame[top:bottom, left:right]
+        logger.info(f"Processed {input_path.name} into {num_versions} versions")
+        logger.info(f"Crop coordinates: ({left}, {right}, {top}, {bottom})")
 
-                        gray = cv2.cvtColor(content, cv2.COLOR_BGR2GRAY)
+        return num_versions
 
-                        resized = cv2.resize(gray, target_size,
-                                             interpolation=cv2.INTER_AREA)
-
-                        normalized = cv2.normalize(resized, None, 0, 255,
-                                                   cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-
-                        out.write(normalized)
-                        processed_count += 1
-                        pbar.update(1)
-
-                    frame_count += 1
-
-            logger.info(f"Processed {processed_count} frames from {input_path.name}")
-            logger.info(f"Crop coordinates: ({left}, {right}, {top}, {bottom})")
-
-    return processed_count
+    finally:
+        if temp_cropped.exists():
+            temp_cropped.unlink()
+        if temp_dir.exists():
+            temp_dir.rmdir()
 
 
-def process_dataset(base_path: str):
-    base_path = Path(base_path)
-    normal_dir = base_path / 'videos' / 'fight'
+def process_dataset(input_dir: str, output_dir: str):
+    """
+    Process all videos in the input directory and save processed versions to the output directory.
 
-    total_processed = 0
+    Args:
+        input_dir (str): Directory containing source videos
+        output_dir (str): Directory to save processed videos
+    """
+    input_dir = Path(input_dir)
+    output_dir = Path(output_dir)
+
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(exist_ok=True)
+
+    total_source_processed = 0
+    total_versions_created = 0
     total_errors = 0
+    current_version = 0
 
-    for split in ['train', 'val', 'test']:
-        split_dir = normal_dir / split
-        if not split_dir.exists():
-            logger.warning(f"Split directory not found: {split_dir}")
-            continue
+    video_files = list(input_dir.glob('*.mp4')) + list(input_dir.glob('*.avi'))
+    video_files = [f for f in video_files if f.is_file()]
 
-        processed_dir = split_dir / 'processed'
-        processed_dir.mkdir(exist_ok=True)
+    logger.info(f"Found {len(video_files)} videos to process")
 
-        video_files = list(split_dir.glob('*.mp4')) + list(split_dir.glob('*.avi'))
-        video_files = [f for f in video_files if f.is_file()]
-
-        logger.info(f"\nProcessing {split} split: {len(video_files)} videos")
-
-        for video_path in tqdm(video_files, desc=f"{split} progress"):
-            try:
-                output_path = processed_dir / f"{video_path.stem}_processed.mp4"
-
-                if output_path.exists():
-                    logger.info(f"Skipping existing video: {output_path}")
-                    continue
-
-                processed_frames = process_video(video_path, output_path)
-                total_processed += 1
-
-            except Exception as e:
-                logger.error(f"Error processing {video_path.name}: {str(e)}")
-                total_errors += 1
+    for video_path in tqdm(video_files, desc="Processing videos"):
+        try:
+            # Check if any version of this video already exists
+            existing_versions = list(output_dir.glob(f"{video_path.stem}_*{video_path.suffix}"))
+            if existing_versions:
+                logger.info(f"Skipping existing video versions: {video_path.stem}")
                 continue
 
+            num_versions = process_video(video_path, output_dir,
+                                         version_start=current_version)
+
+            current_version += num_versions
+            total_source_processed += 1
+            total_versions_created += num_versions
+
+        except Exception as e:
+            logger.error(f"Error processing {video_path.name}: {str(e)}")
+            total_errors += 1
+            continue
+
     logger.info(f"\nProcessing completed:")
-    logger.info(f"Successfully processed: {total_processed} videos")
+    logger.info(f"Successfully processed: {total_source_processed} source videos")
+    logger.info(f"Total versions created: {total_versions_created}")
     logger.info(f"Failed to process: {total_errors} videos")
+    logger.info(f"Final version number: {current_version - 1}")
 
 
 def main():
-
-    # dataset path
-    base_path = "../../data/UBI_FIGHTS"
+    input_dir = "../../../UBI_FIGHTS/videos/fight"
+    output_dir = "../../../UBI_FIGHTS/videos/fight/processed"
 
     try:
         logger.info("Starting video processing pipeline...")
-        process_dataset(base_path)
+        process_dataset(input_dir, output_dir)
         logger.info("Video processing completed successfully!")
 
     except KeyboardInterrupt:
