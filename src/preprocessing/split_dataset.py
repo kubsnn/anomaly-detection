@@ -1,6 +1,8 @@
 import shutil
 import random
 from pathlib import Path
+import sys
+sys.path.append('..')
 from utils import setup_logging
 
 
@@ -27,7 +29,7 @@ def setup_dataset_split(base_path: str,dir: str, train_ratio=0.7, val_ratio=0.2,
     video_files = [f for f in normal_dir.glob('*') if f.suffix in ('.mp4', '.avi') and f.is_file()]
 
     if not video_files:
-        raise ValueError(f"No video files found in {normal_dir}")
+        print(f"No video files found in {normal_dir}")
 
     random.seed(42)  # reproducibility
     random.shuffle(video_files)
