@@ -5,9 +5,8 @@ import torch
 logger = setup_logging(__name__)
 
 
-def train_and_evaluate(model, train_loader, val_loader, optimizer, num_epochs, device, eval_interval, config, startdate, dvs=False):
+def train_and_evaluate(model, train_loader, val_loader, optimizer, num_epochs, device, eval_interval, config, startdate, dvs=False, snapshot_dir = "./snapshots"):
     best_accuracy = 0.0
-    snapshot_dir = "./snapshots"
 
     for epoch in range(1, num_epochs + 1):
         logger.info(f"Epoch {epoch}/{num_epochs}")

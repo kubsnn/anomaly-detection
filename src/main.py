@@ -18,16 +18,16 @@ def main():
     # Configuration
     CONFIG = {
         'base_path': './data/UBI_FIGHTS',
-        'subset_size': 336,
+        'subset_size': 20,
         'batch_size': 48,
-        'num_epochs': 9,
-        'learning_rate': 4e-4,
+        'num_epochs': 7,
+        'learning_rate': 2e-4,
         'clip_length': 16,
         'input_channels': 3,
         'latent_dim': 256,
         'target_size': (64, 64),
         'reconstruction_threshold': 0.015,
-        'eval_interval': 4,
+        'eval_interval': 3,
     }
 
     # Load paths

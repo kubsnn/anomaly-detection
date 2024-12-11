@@ -131,7 +131,7 @@ def process_video(input_path: Path, output_dir: Path, version_start: int,
 
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-            for _ in tqdm(range(total_frames), desc="Cropping video", leave=False):
+            for _ in tqdm(range(total_frames), desc=f"{input_path.name}", leave=False):
                 ret, frame = cap.read()
                 if not ret:
                     break
@@ -150,8 +150,8 @@ def process_video(input_path: Path, output_dir: Path, version_start: int,
             grayscale=True
         )
 
-        logger.info(f"Processed {input_path.name} into {num_versions} versions")
-        logger.info(f"Crop coordinates: ({left}, {right}, {top}, {bottom})")
+        # logger.info(f"Processed {input_path.name} into {num_versions} versions")
+        # logger.info(f"Crop coordinates: ({left}, {right}, {top}, {bottom})")
 
         return num_versions
 
@@ -189,9 +189,9 @@ def process_dataset(input_dir: str, output_dir: str):
     for video_path in tqdm(video_files, desc="Processing videos"):
         try:
             # Check if any version of this video already exists
-            existing_versions = list(output_dir.glob(f"{video_path.stem}_*{video_path.suffix}"))
+            existing_versions = list(output_dir.glob(f"temp_cropped_{video_path.stem}_*{video_path.suffix}"))
             if existing_versions:
-                logger.info(f"Skipping existing video versions: {video_path.stem}")
+                #logger.info(f"Skipping existing video versions: {video_path.stem}")
                 continue
 
             num_versions = process_video(video_path, output_dir,
@@ -214,8 +214,8 @@ def process_dataset(input_dir: str, output_dir: str):
 
 
 def main():
-    input_dir = "../../../UBI_FIGHTS/videos/fight"
-    output_dir = "../../../UBI_FIGHTS/videos/fight/processed"
+    input_dir = "../../data/UBI_FIGHTS/videos/normal"
+    output_dir = "../../data/UBI_FIGHTS/videos/normal/processed"
 
     try:
         logger.info("Starting video processing pipeline...")
