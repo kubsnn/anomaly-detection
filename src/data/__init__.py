@@ -8,11 +8,10 @@ Version: 0.1.0
 Author: RocketSteve
 License: MIT
 """
-from .augmentation import VideoAugmentation
+
 from .clipper import VideoClipDataset
 
 __all__ = [
-    'VideoAugmentation',
     'VideoClipDataset'
 ]
 

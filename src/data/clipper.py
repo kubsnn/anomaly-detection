@@ -31,11 +31,8 @@ class VideoClipDataset(Dataset):
         self.logger = logging.getLogger(__name__)
 
         # Initialize transform if augmentation is enabled
-        if self.augment:
-            from .augmentation import VideoAugmentation
-            self.transform = VideoAugmentation()
-        else:
-            self.transform = None
+
+        self.transform = None
 
         # Pre-compute clips for each video
         self.clips = self._compute_clips()
@@ -181,11 +178,7 @@ class VideoClipDataset(Dataset):
                 clip_info['total_frames']
             )
 
-            self.logger.debug(f"Loaded clip shape: {frames.shape}")
-
-            if self.augment and self.transform is not None:
-                frames = self.transform(frames)
-                frames = np.ascontiguousarray(frames)
+            #self.logger.debug(f"Loaded clip shape: {frames.shape}")
 
             # Convert to tensor and normalize
             frames = torch.FloatTensor(frames)
