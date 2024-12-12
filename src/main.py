@@ -56,7 +56,7 @@ def prepare_dataset_paths(CONFIG):
 
 
 def load_or_initialize_model(CONFIG, device, startdate):
-    load_snapshot = input("Do you want to load a previous snapshot? (y/n): ").strip().lower() == 'y'
+    load_snapshot = False #input("Do you want to load a previous snapshot? (y/n): ").strip().lower() == 'y'
     if load_snapshot:
         model, optimizer, loaded_config = load_snapshot_model(CONFIG, device)
         if model is not None and optimizer is not None and loaded_config is not None:
@@ -128,19 +128,23 @@ def main():
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
 
+    #create file with name "started"
+    with open(f"started-{startdate}", "w") as f:
+        f.write(f"{startdate}")
+
     # Configuration
     CONFIG = {
         'base_path': './data/UBI_FIGHTS',
-        'subset_size': 100,
-        'batch_size': 32,
-        'num_epochs': 7,
-        'learning_rate': 2e-4,
+        'subset_size': 10000,
+        'batch_size': 52,
+        'num_epochs': 100,
+        'learning_rate': 1e-3,
         'clip_length': 16,
         'input_channels': 3,
         'latent_dim': 256,
         'target_size': (64, 64),
         'reconstruction_threshold': 0.015,
-        'eval_interval': 3,
+        'eval_interval': 5,
         'snapshot_dir': './snapshots',
     }
 
