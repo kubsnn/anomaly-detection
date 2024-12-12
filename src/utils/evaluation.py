@@ -11,7 +11,7 @@ def evaluate_model(model, loader: DataLoader, device: torch.device, threshold: f
     total_loss, correct, total = 0, 0, 0
 
     with torch.no_grad():
-        for batch in tqdm(loader, desc="Evaluating"):
+        for batch, _ in tqdm(loader, desc="Evaluating"):
             batch = batch.to(device)
             _, reconstructed = model(batch)
             mse = torch.mean((batch - reconstructed) ** 2, dim=(1, 2, 3, 4))
