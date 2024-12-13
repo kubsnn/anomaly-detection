@@ -19,8 +19,8 @@ def copy_and_convert_videos(base_path: str, logger):
         base_path (str): Base directory containing the `UBI_FIGHTS` dataset.
     """
     base_path = Path(base_path)
-    processed_base = base_path / "videos" / "fight"
-    target_base = base_path / "v2e" / "videos" / "fight"
+    processed_base = base_path / "videos" / "normal"
+    target_base = base_path / "v2e" / "videos" / "normal"
 
     splits = ["train", "test", "val"]
     empty_dirs = []  # Track empty directories
@@ -49,7 +49,7 @@ def copy_and_convert_videos(base_path: str, logger):
                 continue
 
             # Remove '_processed' from the directory name
-            clean_name = subdir.name.replace("_processed", "")
+            clean_name = subdir.name.replace("_processed", "").replace("temp_cropped_", "").replace("cut_", "")
             target_file = target_split_dir / f"{clean_name}.mp4"
 
             # Check if the target file already exists

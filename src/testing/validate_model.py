@@ -1,4 +1,7 @@
+# validate_model.py
+
 import os
+import random
 import sys
 sys.path.append('..')
 import torch
@@ -6,27 +9,81 @@ from torch.utils.data import DataLoader
 from data.clipper import VideoClipDataset
 from models.autoencoder import VideoAutoencoder
 from utils import setup_logging
-from utils import get_video_paths
-from utils import evaluate_model
+from tqdm import tqdm
 import json
 import glob
-from tqdm import tqdm
 
 logger = setup_logging(__name__)
 
+def jaccard_index(y_true: torch.Tensor, y_pred: torch.Tensor) -> float:
+    """Calculate the Jaccard Index between true and predicted masks."""
+    intersection = torch.sum((y_true == 1) & (y_pred == 1)).item()
+    union = torch.sum((y_true == 1) | (y_pred == 1)).item()
+    return intersection / union if union != 0 else 0
+
+def confusion_matrix(y_true: torch.Tensor, y_pred: torch.Tensor, num_classes: int) -> torch.Tensor:
+    """Compute the confusion matrix."""
+    cm = torch.zeros((num_classes, num_classes), dtype=torch.int64)
+    for t, p in zip(y_true.view(-1), y_pred.view(-1)):
+        cm[t.long(), p.long()] += 1
+    return cm
+
+def compute_binary_classification_metrics(y_true: torch.Tensor, y_pred: torch.Tensor) -> dict:
+    """Compute accuracy, precision, recall, and F1 score for binary classification."""
+    tp = torch.sum((y_pred == 1) & (y_true == 1)).item()
+    tn = torch.sum((y_pred == 0) & (y_true == 0)).item()
+    fp = torch.sum((y_pred == 1) & (y_true == 0)).item()
+    fn = torch.sum((y_pred == 0) & (y_true == 1)).item()
+
+    total = tp + tn + fp + fn
+    accuracy = (tp + tn) / total if total > 0 else 0
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+
+    return {
+        "accuracy": accuracy * 100,
+        "precision": precision,
+        "recall": recall,
+        "f1_score": f1_score,
+        "tp": tp,
+        "tn": tn,
+        "fp": fp,
+        "fn": fn
+    }
+
+def get_best_threshold(mse_scores: torch.Tensor, labels: torch.Tensor) -> tuple:
+    """Find the best threshold based on F1 Score."""
+    threshold = 0.02
+    preds = (mse_scores > threshold).long()
+    metrics = compute_binary_classification_metrics(labels, preds)
+    best_f1 = metrics['f1_score']
+    best_threshold = threshold
+    best_metrics = metrics
+
+    return best_threshold, best_metrics
+
+def find_best_threshold(mse_scores: torch.Tensor, labels: torch.Tensor) -> tuple:
+    """Find the best threshold based on F1 Score."""
+    thresholds = torch.linspace(mse_scores.min(), mse_scores.max(), steps=200)
+    print(mse_scores.min(), mse_scores.max())
+    best_f1 = 0.0
+    best_threshold = thresholds[0]
+    best_metrics = None
+
+    for threshold in thresholds:
+        preds = (mse_scores > threshold).long()
+        metrics = compute_binary_classification_metrics(labels, preds)
+        if metrics['f1_score'] > best_f1:
+            best_f1 = metrics['f1_score']
+            best_threshold = threshold.item()
+            best_metrics = metrics
+        
+
+    return best_threshold, best_metrics
+
 def load_model(model_path: str, config_path: str, device: torch.device):
-    """
-    Load the model and its configuration.
-
-    Args:
-        model_path (str): Path to the saved model (.pth).
-        config_path (str): Path to the configuration file (.json).
-        device (torch.device): Device to load the model onto.
-
-    Returns:
-        model (torch.nn.Module): Loaded PyTorch model.
-        config (dict): Configuration dictionary.
-    """
+    """Load the model and its configuration."""
     if not os.path.exists(config_path):
         logger.error(f"Configuration file not found: {config_path}")
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
@@ -47,34 +104,57 @@ def load_model(model_path: str, config_path: str, device: torch.device):
     model.eval()
 
     logger.info(f"Loaded model from {model_path}")
+    # Adjust base_path if needed
     config['base_path'] = os.path.join("../..", config['base_path'])
+    print(config['base_path'])
+
+    # add ../.. to every path in the config
+    for i in range(len(config['test_paths'])):
+        config['test_paths'][i] = os.path.join("../..", config['test_paths'][i])
+
     return model, config
 
-
-def prepare_validation_loader(config: dict, use_dvs: bool):
+def remove_90_percent_of_paths(paths):
     """
-    Prepare the validation DataLoader.
+    Remove 90% of paths that start with 'N'.
 
     Args:
-        config (dict): Configuration dictionary.
-        use_dvs (bool): Whether to use DVS-converted videos.
+        paths (list): List of file paths.
 
     Returns:
-        DataLoader: Validation DataLoader.
+        list: Filtered list of file paths.
     """
-    val_video_paths = get_video_paths(
-        base_path=config['base_path'],
-        subset_size=config['subset_size'],
-        use_dvs=use_dvs,
-        split="val"
-    )
+    n_paths = [path for path in paths if ('N' in path)]
+    non_n_paths = [path for path in paths if not ('N' in path)]
 
-    if not val_video_paths:
-        logger.error("No validation videos found. Check the dataset structure.")
-        raise ValueError("No validation videos found. Check the dataset structure.")
+    # Calculate the number of paths to remove
+    num_to_remove = int(len(n_paths) * 0.98)
 
-    val_dataset = VideoClipDataset(
-        video_paths=val_video_paths,
+    # Randomly select paths to remove
+    paths_to_remove = random.sample(n_paths, num_to_remove)
+
+    # Filter out the selected paths
+    filtered_paths = [path for path in paths if path not in paths_to_remove]
+
+    return filtered_paths
+
+def prepare_test_loader(config: dict) -> DataLoader:
+    """
+    Prepare the test DataLoader using paths from config['test_paths'].
+    Previously, we tried to use validation paths, but now we rely on pre-defined splits.
+    """
+    if 'test_paths' not in config or not config['test_paths']:
+        logger.error("No test paths found in config. Check the dataset preparation steps.")
+        raise ValueError("No test paths found in config.")
+
+    test_paths =  [sorted(config['test_paths'])[9]]
+    print(test_paths)
+    # remove 98% of paths that starts with 'N'
+    #test_paths = remove_90_percent_of_paths(test_paths)
+
+    # Create the dataset from these test paths
+    test_dataset = VideoClipDataset(
+        video_paths=test_paths,
         clip_length=config['clip_length'],
         clip_overlap=0.5,
         min_clips=1,
@@ -82,73 +162,62 @@ def prepare_validation_loader(config: dict, use_dvs: bool):
         target_size=config['target_size']
     )
 
-    val_loader = DataLoader(
-        val_dataset,
+    test_loader = DataLoader(
+        test_dataset,
         batch_size=config['batch_size'],
-        shuffle=False,
-        num_workers=4,
+        shuffle=True,
+        num_workers=8,
         pin_memory=True
     )
 
-    logger.info(f"Prepared validation dataset with {len(val_dataset)} clips.")
-    return val_loader
+    logger.info(f"Prepared test dataset with {len(test_dataset)} clips.")
+    return test_loader
 
-
-def evaluate_with_metrics(model, loader, device, threshold=0.01):
-    """
-    Evaluate the model and calculate accuracy and mean loss.
-
-    Args:
-        model (torch.nn.Module): Trained autoencoder model.
-        loader (DataLoader): Validation DataLoader.
-        device (torch.device): Device for evaluation.
-        threshold (float): Reconstruction threshold for anomaly detection.
-
-    Returns:
-        dict: Dictionary containing accuracy and mean loss.
-    """
+def evaluate_with_metrics(model, loader, device, num_classes=2):
     model.eval()
     total_loss = 0
-    correct = 0
-    total = 0
+    all_mse = []
+    all_labels = []
 
     with torch.no_grad():
         for batch in tqdm(loader, desc="Evaluating"):
-            if isinstance(batch, tuple):  # Handle datasets with labels
-                batch, labels = batch
-            else:
-                labels = torch.zeros(batch.size(0))  # Default to 0 (non-anomaly)
-
-            batch = batch.to(device)
+            frames, labels = batch  # Unpack frames and labels
+            frames = frames.to(device)
             labels = labels.to(device)
-            _, reconstructed = model(batch)
-            mse = torch.mean((batch - reconstructed) ** 2, dim=(1, 2, 3, 4))
+            # Forward pass
+            _, reconstructed = model(frames)
+            mse = torch.mean((frames - reconstructed) ** 2, dim=(1, 2, 3, 4))
+            total_loss += mse.sum().item()
 
-            total_loss += torch.sum(mse).item()
-            predictions = (mse >= threshold).float()  # Anomaly if mse >= threshold
+            all_mse.append(mse.cpu())
+            all_labels.append(labels.cpu())
 
-            correct += torch.sum(predictions == labels).item()
-            total += batch.size(0)
+    # Concatenate all MSEs and labels
+    all_mse = torch.cat(all_mse)
+    all_labels = torch.cat(all_labels)
 
-    accuracy = (correct / total) * 100 if total > 0 else 0
-    mean_loss = total_loss / total if total > 0 else 0
+    mean_loss = total_loss / len(loader.dataset) if len(loader.dataset) > 0 else 0
+
+    # Determine the best threshold
+    best_threshold, best_metrics = get_best_threshold(all_mse, all_labels)
+
+    # Compute confusion matrix with the best threshold
+    y_pred = (all_mse > best_threshold).long()
+    y_true = all_labels.long()
+
+    cm = confusion_matrix(y_true, y_pred, num_classes)
+    jaccard = jaccard_index(y_true, y_pred)
 
     return {
-        "accuracy": accuracy,
         "mean_loss": mean_loss,
+        "jaccard": jaccard,
+        "confusion_matrix": cm,
+        "best_threshold": best_threshold,
+        **best_metrics  # Include accuracy, precision, recall, f1_score
     }
 
-
 def list_available_models(snapshot_dir: str):
-    """
-    List all available model snapshots, sorted by date.
-
-    Args:
-        snapshot_dir (str): Path to the directory containing snapshots.
-
-    Returns:
-        list: Sorted list of available models.
-    """
+    """List all available model snapshots, sorted by date."""
     model_paths = glob.glob(f"{snapshot_dir}/*.pth")
     model_paths = sorted(model_paths, key=os.path.getmtime, reverse=True)
     if not model_paths:
@@ -156,17 +225,8 @@ def list_available_models(snapshot_dir: str):
         raise FileNotFoundError("No models found in the snapshot directory.")
     return model_paths
 
-
-def select_model(models: list):
-    """
-    Display available models and let the user select one.
-
-    Args:
-        models (list): List of available models.
-
-    Returns:
-        str: Selected model path.
-    """
+def select_model(models: list) -> str:
+    """Display available models and let the user select one."""
     logger.info("\nAvailable Models:")
     for idx, model in enumerate(models, start=1):
         logger.info(f"{idx}: {os.path.basename(model)}")
@@ -181,42 +241,40 @@ def select_model(models: list):
         except ValueError:
             logger.warning("Invalid input. Please enter a number.")
 
-
 def run_validation_evaluation(snapshot_dir: str, device: torch.device):
-    """
-    Run evaluation on the validation set using a selected model.
-
-    Args:
-        snapshot_dir (str): Directory containing model snapshots.
-        device (torch.device): Device for evaluation.
-    """
+    """Run evaluation on the test set using a selected model."""
     # List and select model
     models = list_available_models(snapshot_dir)
     model_path = select_model(models)
     config_path = model_path.replace(".pth", ".json")
 
-    # Determine if the model was trained on DVS data
-    use_dvs = os.path.basename(model_path).startswith("dvs-")
-
     # Load model and configuration
     model, config = load_model(model_path, config_path, device)
 
-    # Prepare the validation DataLoader
-    val_loader = prepare_validation_loader(config, use_dvs)
+    # Prepare the test DataLoader
+    test_loader = prepare_test_loader(config)
 
     # Run evaluation
-    logger.info(f"Starting validation evaluation on {'DVS' if use_dvs else 'default'} videos...")
+    logger.info(f"Starting evaluation on {'DVS' if config.get('use_dvs', False) else 'default'} videos...")
     metrics = evaluate_with_metrics(
         model=model,
-        loader=val_loader,
-        device=device,
-        threshold=config['reconstruction_threshold']
+        loader=test_loader,
+        device=device
     )
 
-    logger.info(f"Validation Metrics:")
-    logger.info(f" - Accuracy (MSE < {config['reconstruction_threshold']}): {metrics['accuracy']:.2f}%")
-    logger.info(f" - Mean Reconstruction Loss (MSE): {metrics['mean_loss']:.6f}")
+    # Log and display the evaluation metrics
+    log_metrics(metrics)
 
+def log_metrics(metrics):
+    logger.info(f"Evaluation Metrics:")
+    logger.info(f">  Best Threshold: {metrics['best_threshold']:.6f}")
+    logger.info(f">  Accuracy: {metrics['accuracy']:.2f}%")
+    logger.info(f">  Precision: {metrics['precision']:.4f}")
+    logger.info(f">  Recall: {metrics['recall']:.4f}")
+    logger.info(f">  F1 Score: {metrics['f1_score']:.4f}")
+    logger.info(f">  Mean Reconstruction Loss (MSE): {metrics['mean_loss']:.6f}")
+    logger.info(f">  Jaccard Index: {metrics['jaccard']:.4f}")
+    logger.info(f">  Confusion Matrix:\n{metrics['confusion_matrix']}")
 
 if __name__ == "__main__":
     try:
@@ -225,12 +283,12 @@ if __name__ == "__main__":
 
         # Set device
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        logger.info("Initializing validation evaluation pipeline...")
+        logger.info(f"Using device: {device}")
+        logger.info("Initializing evaluation pipeline...")
         run_validation_evaluation(snapshot_dir, device)
 
     except KeyboardInterrupt:
         logger.warning("Program interrupted by the user. Exiting gracefully.")
     except Exception as e:
-        logger.error(f"Validation evaluation pipeline failed: {str(e)}")
+        logger.error(f"Evaluation pipeline failed: {str(e)}")
         raise

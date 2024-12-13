@@ -36,6 +36,6 @@ clean:
 	$(RM)
 	@echo Done.
 
-# Cel: run - uruchamia aplikację w środowisku wirtualnym bez aktywacji
-run $(VENV_DIR) requirements.txt:
-	@$(PYTHON) src/main.py || echo Could not start the application. Make sure the virtual environment is set up.
+# Cel: run - uruchamia aplikację w środowisku wirtualnym z argumentami
+run: $(VENV_DIR) requirements.txt
+	@$(PYTHON) src/main.py $(ARGS) || echo Could not start the application. Make sure the virtual environment is set up.

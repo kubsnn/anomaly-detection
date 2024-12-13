@@ -21,7 +21,7 @@ def setup_logging(name) -> logging.Logger:
                 "DEBUG": "cyan",
                 "INFO": "green",
                 "WARN": "yellow",
-                "ERROR": "red",
+                "FAIL": "red",
                 "CRITICAL": "bold_red",
             },
             style="%",
