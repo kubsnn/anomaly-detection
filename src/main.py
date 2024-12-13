@@ -117,7 +117,7 @@ def main():
         'num_epochs': 100,
         'learning_rate': 1e-3,
         'clip_length': 16,
-        'input_channels': 3,
+        'input_channels': 1,
         'latent_dim': 256,
         'target_size': (64, 64),
         'reconstruction_threshold': 0.015,
