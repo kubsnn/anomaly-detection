@@ -1,13 +1,10 @@
-# main.py
+import argparse
 import datetime
 import os
 import json
 import torch
 import random
-from utils import setup_logging
-from utils import evaluate_model
-from utils import list_available_models
-from utils import select_model
+from utils import setup_logging, evaluate_model, list_available_models, select_model
 from training import create_dataloaders, train_and_evaluate
 from testing import evaluate_with_metrics, log_metrics
 from models.autoencoder import VideoAutoencoder
@@ -22,7 +19,6 @@ def prepare_dataset_paths(CONFIG):
     - Perform 80/20 split on normal videos for train/test.
     - Add all fight videos to the test set.
     """
-
     if CONFIG['use_dvs']:
         normal_dir = os.path.join(CONFIG['base_path'], 'v2e', 'videos', 'normal')
         fight_dir = os.path.join(CONFIG['base_path'], 'v2e', 'videos', 'fight')
@@ -55,34 +51,12 @@ def prepare_dataset_paths(CONFIG):
     logger.info(f"Dataset split: {len(train_paths)} normal train, {len(test_paths)} test (normal + fight).")
 
 
-def load_or_initialize_model(CONFIG, device, startdate):
-    load_snapshot = False #input("Do you want to load a previous snapshot? (y/n): ").strip().lower() == 'y'
-    if load_snapshot:
-        model, optimizer, loaded_config = load_snapshot_model(CONFIG, device)
-        if model is not None and optimizer is not None and loaded_config is not None:
-            CONFIG.update(loaded_config)
-            logger.info("Loaded configuration from snapshot.")
-            return model, optimizer, CONFIG
-        else:
-            return None, None, CONFIG
-    else:
-        # Prompt about use_dvs only if we are starting fresh
-        use_dvs = True #input("Use DVS-converted videos? (y/n): ").strip().lower() == 'y'
-        CONFIG['use_dvs'] = use_dvs
-
-        # Prepare dataset paths based on new setting
-        prepare_dataset_paths(CONFIG)
-        return initialize_new_model(CONFIG, device)
-
-
-def load_snapshot_model(CONFIG, device):
+def load_snapshot_model(CONFIG, device, snapshot_name):
     try:
-        available_models = list_available_models(CONFIG['snapshot_dir'])
-        selected_model = select_model(available_models)
-        logger.info(f"Loading model from snapshot: {selected_model}")
+        snapshot_path = os.path.join(CONFIG['snapshot_dir'], f"{snapshot_name}.pth")
+        config_path = snapshot_path.replace(".pth", ".json")
+        optimizer_path = snapshot_path.replace(".pth", "-optimizer.pth")
 
-        # Load associated config
-        config_path = selected_model.replace(".pth", ".json")
         if not os.path.exists(config_path):
             logger.error(f"Configuration file not found: {config_path}")
             return None, None, None
@@ -95,11 +69,10 @@ def load_snapshot_model(CONFIG, device):
             input_channels=loaded_config['input_channels'],
             latent_dim=loaded_config['latent_dim']
         ).to(device)
-        model.load_state_dict(torch.load(selected_model, map_location=device))
+        model.load_state_dict(torch.load(snapshot_path, map_location=device))
 
         # Load optimizer state
         optimizer = torch.optim.Adam(model.parameters(), lr=loaded_config['learning_rate'])
-        optimizer_path = selected_model.replace(".pth", "-optimizer.pth")
         if os.path.exists(optimizer_path):
             optimizer.load_state_dict(torch.load(optimizer_path, map_location=device))
             logger.info(f"Optimizer state loaded from: {optimizer_path}")
@@ -124,18 +97,22 @@ def initialize_new_model(CONFIG, device):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Train or evaluate the Video Autoencoder.")
+    parser.add_argument('--load', type=str, help="Load a specific snapshot by its name (without extension).")
+    args = parser.parse_args()
+
     startdate = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")  # Fixed program start date
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
 
-    #create file with name "started"
+    # Create file to indicate the process started
     with open(f"started-{startdate}", "w") as f:
         f.write(f"{startdate}")
 
     # Configuration
     CONFIG = {
         'base_path': './data/UBI_FIGHTS',
-        'subset_size': 10000,
+        'subset_size': 10,
         'batch_size': 52,
         'num_epochs': 100,
         'learning_rate': 1e-3,
@@ -148,19 +125,31 @@ def main():
         'snapshot_dir': './snapshots',
     }
 
-    model, optimizer, CONFIG = load_or_initialize_model(CONFIG, device, startdate)
-    if model is None or optimizer is None:
-        logger.error("Model or optimizer not initialized. Exiting.")
-        return
+    if args.load:
+        model, optimizer, CONFIG = load_snapshot_model(CONFIG, device, args.load)
+        if model is None or optimizer is None:
+            logger.error("Failed to load the specified snapshot. Exiting.")
+            return
+    else:
+        load_snapshot = input("Do you want to load a previous snapshot? (y/n): ").strip().lower() == 'y'
+        if load_snapshot:
+            available_models = list_available_models(CONFIG['snapshot_dir'])
+            selected_model = select_model(available_models)
+            model, optimizer, CONFIG = load_snapshot_model(CONFIG, device, selected_model)
+            if model is None or optimizer is None:
+                logger.error("Failed to load the selected snapshot. Exiting.")
+                return
+        else:
+            use_dvs = input("Use DVS-converted videos? (y/n): ").strip().lower() == 'y'
+            CONFIG['use_dvs'] = use_dvs
+            prepare_dataset_paths(CONFIG)
+            model, optimizer, CONFIG = initialize_new_model(CONFIG, device)
 
     # Create datasets and loaders using paths from CONFIG
-    # No val_paths in this scenario, just train and test
     train_loader, val_loader, test_loader = create_dataloaders(
         CONFIG['train_paths'], CONFIG['test_paths'],
         CONFIG['test_paths'], CONFIG
     )
-
-    # Train and evaluate if newly initialized or continuing training
 
     if not optimizer:
         logger.fatal("Optimizer not initialized. Exiting.")
