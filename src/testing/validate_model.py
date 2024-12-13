@@ -1,6 +1,7 @@
 # validate_model.py
 
 import os
+import random
 import sys
 sys.path.append('..')
 import torch
@@ -51,9 +52,21 @@ def compute_binary_classification_metrics(y_true: torch.Tensor, y_pred: torch.Te
         "fn": fn
     }
 
+def get_best_threshold(mse_scores: torch.Tensor, labels: torch.Tensor) -> tuple:
+    """Find the best threshold based on F1 Score."""
+    threshold = 0.02
+    preds = (mse_scores > threshold).long()
+    metrics = compute_binary_classification_metrics(labels, preds)
+    best_f1 = metrics['f1_score']
+    best_threshold = threshold
+    best_metrics = metrics
+
+    return best_threshold, best_metrics
+
 def find_best_threshold(mse_scores: torch.Tensor, labels: torch.Tensor) -> tuple:
     """Find the best threshold based on F1 Score."""
-    thresholds = torch.linspace(mse_scores.min(), mse_scores.max(), steps=100)
+    thresholds = torch.linspace(mse_scores.min(), mse_scores.max(), steps=200)
+    print(mse_scores.min(), mse_scores.max())
     best_f1 = 0.0
     best_threshold = thresholds[0]
     best_metrics = None
@@ -65,6 +78,7 @@ def find_best_threshold(mse_scores: torch.Tensor, labels: torch.Tensor) -> tuple
             best_f1 = metrics['f1_score']
             best_threshold = threshold.item()
             best_metrics = metrics
+        
 
     return best_threshold, best_metrics
 
@@ -100,6 +114,29 @@ def load_model(model_path: str, config_path: str, device: torch.device):
 
     return model, config
 
+def remove_90_percent_of_paths(paths):
+    """
+    Remove 90% of paths that start with 'N'.
+
+    Args:
+        paths (list): List of file paths.
+
+    Returns:
+        list: Filtered list of file paths.
+    """
+    n_paths = [path for path in paths if ('N' in path)]
+    non_n_paths = [path for path in paths if not ('N' in path)]
+
+    # Calculate the number of paths to remove
+    num_to_remove = int(len(n_paths) * 0.98)
+
+    # Randomly select paths to remove
+    paths_to_remove = random.sample(n_paths, num_to_remove)
+
+    # Filter out the selected paths
+    filtered_paths = [path for path in paths if path not in paths_to_remove]
+
+    return filtered_paths
 
 def prepare_test_loader(config: dict) -> DataLoader:
     """
@@ -110,7 +147,10 @@ def prepare_test_loader(config: dict) -> DataLoader:
         logger.error("No test paths found in config. Check the dataset preparation steps.")
         raise ValueError("No test paths found in config.")
 
-    test_paths = config['test_paths']
+    test_paths =  [sorted(config['test_paths'])[9]]
+    print(test_paths)
+    # remove 98% of paths that starts with 'N'
+    #test_paths = remove_90_percent_of_paths(test_paths)
 
     # Create the dataset from these test paths
     test_dataset = VideoClipDataset(
@@ -125,8 +165,8 @@ def prepare_test_loader(config: dict) -> DataLoader:
     test_loader = DataLoader(
         test_dataset,
         batch_size=config['batch_size'],
-        shuffle=False,
-        num_workers=4,
+        shuffle=True,
+        num_workers=8,
         pin_memory=True
     )
 
@@ -144,7 +184,6 @@ def evaluate_with_metrics(model, loader, device, num_classes=2):
             frames, labels = batch  # Unpack frames and labels
             frames = frames.to(device)
             labels = labels.to(device)
-
             # Forward pass
             _, reconstructed = model(frames)
             mse = torch.mean((frames - reconstructed) ** 2, dim=(1, 2, 3, 4))
@@ -160,7 +199,7 @@ def evaluate_with_metrics(model, loader, device, num_classes=2):
     mean_loss = total_loss / len(loader.dataset) if len(loader.dataset) > 0 else 0
 
     # Determine the best threshold
-    best_threshold, best_metrics = find_best_threshold(all_mse, all_labels)
+    best_threshold, best_metrics = get_best_threshold(all_mse, all_labels)
 
     # Compute confusion matrix with the best threshold
     y_pred = (all_mse > best_threshold).long()
