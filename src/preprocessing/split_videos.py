@@ -1,11 +1,11 @@
 import sys
-import argparse
 
 sys.path.append('..')
 from pathlib import Path
 import cv2
 from tqdm import tqdm
-from frame_sampling import video_capture, video_writer
+import argparse
+from frame_sampling import video_capture
 from utils.logger import setup_logging
 
 logger = setup_logging(__name__)
@@ -40,12 +40,22 @@ def split_processed_videos(base_path: Path, segment_length: int = 10):
         for video_path in tqdm(video_files, desc=f"Splitting videos in {category}"):
             try:
                 with video_capture(video_path) as cap:
+                    if not cap.isOpened():
+                        logger.error(f"Could not open video: {video_path}")
+                        continue
                     fps = int(cap.get(cv2.CAP_PROP_FPS))
                     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                     duration = total_frames / fps
 
+                    logger.info(f"Processing video: {video_path.name}")
+                    logger.info(f"FPS: {fps}")
+                    logger.info(f"Total frames: {total_frames}")
+                    logger.info(f"Duration: {duration:.2f} seconds")
+                    logger.info(f"Required duration: {2 * segment_length} seconds")
+
                     # Only split if video is longer than twice the segment length
                     if duration < 2 * segment_length:
+                        logger.info(f"Skipping video - too short (needs {2 * segment_length}s, got {duration:.2f}s)")
                         continue
 
                     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -64,40 +74,79 @@ def split_processed_videos(base_path: Path, segment_length: int = 10):
                         start_frame = segment * segment_frames
                         end_frame = start_frame + segment_frames
 
-                        segment_path = split_dir / f"split_{video_path.stem}_segment_{segment}{video_path.suffix}"
+                        segment_path = split_dir / f"split_{video_path.stem}_segment_{segment}.mp4"
 
-                        with video_writer(segment_path, fps, (frame_width, frame_height)) as out:
-                            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+                        # Use H.264 codec
+                        fourcc = cv2.VideoWriter_fourcc(*'avc1')
+                        out = cv2.VideoWriter(str(segment_path), fourcc, fps,
+                                              (frame_width, frame_height))
 
+                        if not out.isOpened():
+                            # Fallback to XVID codec if H.264 fails
+                            out.release()
+                            segment_path = segment_path.with_suffix('.avi')
+                            fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                            out = cv2.VideoWriter(str(segment_path), fourcc, fps,
+                                                  (frame_width, frame_height))
+
+                            if not out.isOpened():
+                                logger.error(f"Could not create video writer for {segment_path}")
+                                continue
+
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+                        try:
                             for _ in range(segment_frames):
                                 ret, frame = cap.read()
                                 if not ret:
                                     break
                                 out.write(frame)
 
-                        segments_created += 1
+                            segments_created += 1
+                        finally:
+                            out.release()
 
                     # Handle last segment (combine last full segment with remainder)
                     if num_full_segments > 0:
                         start_frame = num_segments * segment_frames
                         end_frame = total_frames
 
-                        segment_path = split_dir / f"split_{video_path.stem}_segment_{num_segments}{video_path.suffix}"
+                        segment_path = split_dir / f"split_{video_path.stem}_segment_{num_segments}.mp4"
 
-                        with video_writer(segment_path, fps, (frame_width, frame_height)) as out:
-                            cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+                        # Use H.264 codec
+                        fourcc = cv2.VideoWriter_fourcc(*'avc1')
+                        out = cv2.VideoWriter(str(segment_path), fourcc, fps,
+                                              (frame_width, frame_height))
 
+                        if not out.isOpened():
+                            # Fallback to XVID codec if H.264 fails
+                            out.release()
+                            segment_path = segment_path.with_suffix('.avi')
+                            fourcc = cv2.VideoWriter_fourcc(*'XVID')
+                            out = cv2.VideoWriter(str(segment_path), fourcc, fps,
+                                                  (frame_width, frame_height))
+
+                            if not out.isOpened():
+                                logger.error(f"Could not create video writer for {segment_path}")
+                                continue
+
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+                        try:
                             for _ in range(start_frame, end_frame):
                                 ret, frame = cap.read()
                                 if not ret:
                                     break
                                 out.write(frame)
 
-                        segments_created += 1
+                            segments_created += 1
+                        finally:
+                            out.release()
 
-                    # Delete original video after successful splitting
-                    video_path.unlink()
-                    total_split += 1
+                    # Only delete original if we successfully created segments
+                    if segments_created > 0:
+                        video_path.unlink()
+                        total_split += 1
 
             except Exception as e:
                 logger.error(f"Error splitting {video_path.name}: {str(e)}")
@@ -110,15 +159,14 @@ def split_processed_videos(base_path: Path, segment_length: int = 10):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Split processed videos into segments")
-    parser.add_argument("--base-path", type=str, default="../../data/UBI_FIGHTS",
-                        help="Base directory containing the UBI-FIGHTS dataset")
+    parser.add_argument("--base-path", type=str, default="../../../UBI_FIGHTS",
+                        help="Base directory containing the dataset")
     parser.add_argument("--segment-length", type=int, default=10,
                         help="Length of each segment in seconds")
     return parser.parse_args()
 
 
 def main():
-    """Command line interface for video splitting."""
     args = parse_args()
     base_path = Path(args.base_path)
 
