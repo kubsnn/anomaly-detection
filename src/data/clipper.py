@@ -30,9 +30,6 @@ class VideoClipDataset(Dataset):
 
         self.logger = logging.getLogger(__name__)
 
-        # Initialize transform if augmentation is enabled
-
-
         # Pre-compute clips for each video
         self.clips = self._compute_clips()
         self.logger.info(f"Created dataset with {len(self.clips)} clips from {len(video_paths)} videos")
@@ -122,7 +119,7 @@ class VideoClipDataset(Dataset):
             total_frames (int): Total number of frames in video
 
         Returns:
-            np.ndarray: Video clip array of shape [T, H, W, C]
+            np.ndarray: Video clip array of shape [T, H, W, 1]
         """
         frames = []
         cap = cv2.VideoCapture(video_path)
@@ -138,13 +135,13 @@ class VideoClipDataset(Dataset):
                 if frames:
                     frames.append(frames[-1].copy())
                 else:
-                    frames.append(np.zeros((self.target_size[0], self.target_size[1], 3),
+                    frames.append(np.zeros((self.target_size[0], self.target_size[1], 1),
                                            dtype=np.uint8))
             else:
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
                 frame = cv2.resize(frame, (self.target_size[1], self.target_size[0]),
                                    interpolation=cv2.INTER_AREA)
-                frames.append(frame)
+                frames.append(frame[..., np.newaxis])  # Add channel dimension for grayscale
 
         cap.release()
         return np.ascontiguousarray(np.array(frames))
@@ -185,7 +182,7 @@ class VideoClipDataset(Dataset):
             frames = frames / 255.0
             frames = (frames - 0.5) / 0.5
 
-            expected_shape = (3, self.clip_length, self.target_size[0], self.target_size[1])
+            expected_shape = (1, self.clip_length, self.target_size[0], self.target_size[1])
             assert frames.shape == expected_shape, \
                 f"Wrong shape: got {frames.shape}, expected {expected_shape}"
 

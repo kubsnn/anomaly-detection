@@ -17,23 +17,27 @@ def prepare_dataset_paths(CONFIG):
     - If use_dvs is True, use './data/UBI_FIGHTS/v2e/videos/normal' and '.../fight'
       Otherwise, use './data/UBI_FIGHTS/videos/normal' and '.../fight'
     - Perform 80/20 split on normal videos for train/test.
-    - Add all fight videos to the test set.
+    - Ensure the test set is balanced between normal and fight videos.
+    - Add excess normal videos (beyond the fight video count) to the training set.
+    - Log detailed information about the split percentages.
     """
     if CONFIG['use_dvs']:
-        normal_dir = os.path.join(CONFIG['base_path'], 'v2e', 'videos', 'normal')
-        fight_dir = os.path.join(CONFIG['base_path'], 'v2e', 'videos', 'fight')
+        normal_dir = os.path.join(CONFIG['base_path'], 'v2e', 'videos', 'normal', 'split')
+        fight_dir = os.path.join(CONFIG['base_path'], 'v2e', 'videos', 'fight', 'split')
     else:
-        normal_dir = os.path.join(CONFIG['base_path'], 'videos', 'normal')
-        fight_dir = os.path.join(CONFIG['base_path'], 'videos', 'fight')
+        normal_dir = os.path.join(CONFIG['base_path'], 'videos', 'normal', 'split')
+        fight_dir = os.path.join(CONFIG['base_path'], 'videos', 'fight', 'split')
 
-    normal_videos = [os.path.join(normal_dir, f) for f in os.listdir(normal_dir) if f.endswith(('.mp4', '.avi'))]
-    fight_videos = [os.path.join(fight_dir, f) for f in os.listdir(fight_dir) if f.endswith(('.mp4', '.avi'))]
-
+    normal_videos = [os.path.join(normal_dir, f) for f in os.listdir(normal_dir) if f.endswith('.mp4')]
+    fight_videos = [os.path.join(fight_dir, f) for f in os.listdir(fight_dir) if f.endswith('.mp4')]
+    total_fight = len(fight_videos)
     if not normal_videos:
         logger.error("No normal videos found.")
         raise FileNotFoundError("No normal videos found.")
 
     random.shuffle(normal_videos)
+    random.shuffle(fight_videos)
+
     if CONFIG.get('subset_size') and CONFIG['subset_size'] < len(normal_videos):
         normal_videos = normal_videos[:CONFIG['subset_size']]
 
@@ -41,14 +45,43 @@ def prepare_dataset_paths(CONFIG):
     total_normal = len(normal_videos)
     train_count = int(total_normal * 0.8)
     train_paths = normal_videos[:train_count]
-    test_paths = normal_videos[train_count:total_normal]
-    # Add fight videos entirely to the test set up to the size of the normal test set
-    test_paths.extend(fight_videos[:len(test_paths)])
+    normal_test_paths = normal_videos[train_count:total_normal]
+
+    # Balance the test set: limit normal and fight videos to the same size
+    num_fight_test = len(fight_videos)
+    num_normal_test = len(normal_test_paths)
+
+    if num_fight_test > num_normal_test:
+        fight_videos = fight_videos[:num_normal_test]
+    else:
+        normal_test_paths = normal_test_paths[:num_fight_test]
+
+    # Add excess normal test videos to the train set
+    excess_normal_test_paths = normal_test_paths[num_fight_test:]
+    train_paths.extend(excess_normal_test_paths)
+
+    # Combine balanced normal test paths with fight videos for the test set
+    test_paths = normal_test_paths[:num_fight_test] + fight_videos
+
+    # Log detailed split percentages
+    total_videos = len(normal_videos) + len(fight_videos)
+    train_percentage = (len(train_paths) / total_videos) * 100
+    test_percentage = (len(test_paths) / total_videos) * 100
+    normal_train_percentage = (len(train_paths) - len(excess_normal_test_paths)) / len(normal_videos) * 100
+    normal_test_percentage = len(normal_test_paths[:num_fight_test]) / len(normal_videos) * 100
+    fight_test_percentage = len(fight_videos) / total_fight * 100
+
+    logger.info(f"Dataset split:")
+    logger.info(f"- Total videos: {total_videos}")
+    logger.info(f"- Train set: {len(train_paths)} ({train_percentage:.2f}%)")
+    logger.info(f"  - Normal videos in train set: {len(train_paths) - len(excess_normal_test_paths)} ({normal_train_percentage:.2f}%)")
+    logger.info(f"- Test set: {len(test_paths)} ({test_percentage:.2f}%)")
+    logger.info(f"  - Normal videos in test set: {len(normal_test_paths[:num_fight_test])} ({normal_test_percentage:.2f}%)")
+    logger.info(f"  - Fight videos in test set: {len(fight_videos)} ({fight_test_percentage:.2f}%)")
 
     CONFIG['train_paths'] = train_paths
     CONFIG['test_paths'] = test_paths
 
-    logger.info(f"Dataset split: {len(train_paths)} normal train, {len(test_paths)} test (normal + fight).")
 
 
 def load_snapshot_model(CONFIG, device, snapshot_name):
@@ -99,6 +132,7 @@ def initialize_new_model(CONFIG, device):
 def main():
     parser = argparse.ArgumentParser(description="Train or evaluate the Video Autoencoder.")
     parser.add_argument('--load', type=str, help="Load a specific snapshot by its name (without extension).")
+    parser.add_argument('--no-load', action='store_true', help="Do not load any snapshot.")
     args = parser.parse_args()
 
     startdate = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")  # Fixed program start date
@@ -112,10 +146,10 @@ def main():
     # Configuration
     CONFIG = {
         'base_path': './data/UBI_FIGHTS',
-        'subset_size': 10,
-        'batch_size': 52,
+        'subset_size': 12500,
+        'batch_size': 16,
         'num_epochs': 100,
-        'learning_rate': 1e-3,
+        'learning_rate': 5e-3,
         'clip_length': 16,
         'input_channels': 1,
         'latent_dim': 256,
@@ -131,7 +165,11 @@ def main():
             logger.error("Failed to load the specified snapshot. Exiting.")
             return
     else:
-        load_snapshot = input("Do you want to load a previous snapshot? (y/n): ").strip().lower() == 'y'
+        if args.no_load:
+            load_snapshot = False
+        else:
+            load_snapshot = input("Do you want to load a previous snapshot? (y/n): ").strip().lower() == 'y'
+
         if load_snapshot:
             available_models = list_available_models(CONFIG['snapshot_dir'])
             selected_model = select_model(available_models)
@@ -140,7 +178,7 @@ def main():
                 logger.error("Failed to load the selected snapshot. Exiting.")
                 return
         else:
-            use_dvs = input("Use DVS-converted videos? (y/n): ").strip().lower() == 'y'
+            use_dvs = True #input("Use DVS-converted videos? (y/n): ").strip().lower() == 'y'
             CONFIG['use_dvs'] = use_dvs
             prepare_dataset_paths(CONFIG)
             model, optimizer, CONFIG = initialize_new_model(CONFIG, device)
