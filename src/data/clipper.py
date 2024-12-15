@@ -1,15 +1,17 @@
-# clipper.py
-
-import os  # Import os to handle file paths
+import os
 import torch
 from torch.utils.data import Dataset
 import cv2
 import numpy as np
-import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from utils import setup_logging
+from tqdm import tqdm
+
+logger = setup_logging(__name__)
 
 class VideoClipDataset(Dataset):
     def __init__(self, video_paths, clip_length=16, clip_overlap=0.5, min_clips=1,
-                 augment=True, target_size=(64, 64)):
+                 augment=True, target_size=(128, 128)):
         """
         Initialize the video clip dataset.
 
@@ -28,37 +30,32 @@ class VideoClipDataset(Dataset):
         self.augment = augment
         self.target_size = target_size
 
-        self.logger = logging.getLogger(__name__)
-
         # Pre-compute clips for each video
         self.clips = self._compute_clips()
-        self.logger.info(f"Created dataset with {len(self.clips)} clips from {len(video_paths)} videos")
+        logger.info(f"Created dataset with {len(self.clips)} clips from {len(video_paths)} videos")
 
     def _compute_clips(self):
         """
-        Pre-compute clip indices for all videos.
+        Pre-compute clip indices for all videos using multithreading.
 
         Returns:
             list: List of dictionaries containing clip information
         """
-        all_clips = []
-
-        for video_idx, video_path in enumerate(self.video_paths):
+        def process_video(video_path):
             try:
                 cap = cv2.VideoCapture(video_path)
                 if not cap.isOpened():
-                    self.logger.error(f"Could not open video file: {video_path}")
-                    continue
+                    logger.error(f"Could not open video file: {video_path}")
+                    return []
 
                 total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                 cap.release()
 
                 if total_frames == 0:
-                    self.logger.error(f"Video has 0 frames: {video_path}")
-                    continue
+                    logger.error(f"Video has 0 frames: {video_path}")
+                    return []
 
                 stride = int(self.clip_length * (1 - self.clip_overlap))
-
                 n_clips = max(
                     self.min_clips,
                     (total_frames - self.clip_length) // stride + 1
@@ -77,35 +74,46 @@ class VideoClipDataset(Dataset):
                             dtype=int
                         )
 
-                # Extract the filename and assign label based on the first character
                 filename = os.path.basename(video_path)
-                first_char = filename[0].upper()  # Ensure it's uppercase for consistency
+                first_char = filename[0].upper()
 
                 if first_char == 'N':
                     label = 0
                 elif first_char == 'F':
                     label = 1
                 else:
-                    self.logger.warning(f"Unknown label for file {filename}, defaulting to 0")
-                    label = 0  # Default label if the first character is neither 'N' nor 'F'
+                    logger.warning(f"Unknown label for file {filename}, defaulting to 0")
+                    label = 0
 
+                clips = []
                 for start in clip_starts:
-                    all_clips.append({
-                        'video_idx': video_idx,
+                    clips.append({
+                        'video_idx': video_path,
                         'start_frame': int(start),
                         'end_frame': int(start + self.clip_length),
                         'total_frames': total_frames,
                         'video_path': video_path,
-                        'label': label  # Include the label in the clip information
+                        'label': label
                     })
 
+                return clips
+
             except Exception as e:
-                self.logger.error(f"Error processing video {video_path}: {str(e)}")
-                continue
+                logger.error(f"Error processing video {video_path}: {str(e)}")
+                return []
+
+        logger.info(f"Pre-computing clips for {len(self.video_paths)} videos...")
+        all_clips = []
+        with ThreadPoolExecutor(max_workers=16) as executor:  # Adjust `max_workers` based on your CPU
+            future_to_video = {executor.submit(process_video, video): video for video in self.video_paths}
+
+            for future in tqdm(as_completed(future_to_video), total=len(self.video_paths), desc="Processing videos"):
+                all_clips.extend(future.result())
 
         if not all_clips:
             raise ValueError("No valid clips found in the dataset")
 
+        logger.info(f"Finished pre-computing {len(all_clips)} clips from {len(self.video_paths)} videos.")
         return all_clips
 
     def _load_clip(self, video_path, start_frame, end_frame, total_frames):
@@ -141,7 +149,10 @@ class VideoClipDataset(Dataset):
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
                 frame = cv2.resize(frame, (self.target_size[1], self.target_size[0]),
                                    interpolation=cv2.INTER_AREA)
-                frames.append(frame[..., np.newaxis])  # Add channel dimension for grayscale
+                frame = frame / 255.0  # Normalize to [0, 1]
+                frame = (frame - 0.5) * 2.0  # Shift to [-1, 1]
+                frame = frame[..., np.newaxis]  # Add channel dimension for grayscale
+                frames.append(frame)
 
         cap.release()
         return np.ascontiguousarray(np.array(frames))
@@ -174,13 +185,12 @@ class VideoClipDataset(Dataset):
                 clip_info['total_frames']
             )
 
-            self.logger.debug(f"Loaded clip shape: {frames.shape}")
+            logger.debug(f"Loaded clip shape: {frames.shape}")
 
             # Convert to tensor and normalize
             frames = torch.FloatTensor(frames)
             frames = frames.permute(3, 0, 1, 2)  # [C, T, H, W]
-            frames = frames / 255.0
-            frames = (frames - 0.5) / 0.5
+            frames = torch.clip(frames, -1, 1)  # Ensure the values remain between -1 and 1
 
             expected_shape = (1, self.clip_length, self.target_size[0], self.target_size[1])
             assert frames.shape == expected_shape, \
@@ -189,5 +199,5 @@ class VideoClipDataset(Dataset):
             return frames, label  # Return both frames and label
 
         except Exception as e:
-            self.logger.error(f"Error in __getitem__ for index {idx}: {str(e)}")
+            logger.error(f"Error in __getitem__ for index {idx}: {str(e)}")
             raise

@@ -9,22 +9,13 @@ logger = setup_logging(__name__)  # Logger instance for this module
 
 
 class VideoAutoencoder(nn.Module):
-    def __init__(self, input_channels: int = 3, latent_dim: int = 256) -> None:
-        """
-        Initialize the VideoAutoencoder with encoder and decoder architectures.
-
-        Args:
-            input_channels (int): Number of input channels (default is 3 for RGB).
-            latent_dim (int): Dimensionality of the latent representation.
-        """
+    def __init__(self, input_channels, latent_dim):
         super(VideoAutoencoder, self).__init__()
         self.input_channels = input_channels
         self.latent_dim = latent_dim
 
-        # Calculate dimensions after convolutions
-        # Input: [B, C, T, H, W] = [B, 3, 16, 64, 64]
         # After 3 maxpool layers: T/8, H/8, W/8
-        self.encoded_dim = 256 * 2 * 8 * 8  # 256 channels * 2 frames * 8x8 spatial
+        self.encoded_dim = 256 * 2 * 12 * 12  # 256 channels * 2 frames * 12x12 spatial
 
         logger.info("Initializing VideoAutoencoder...")
         logger.debug(f"Input channels: {self.input_channels}")
@@ -55,18 +46,21 @@ class VideoAutoencoder(nn.Module):
         # Decoder
         self.decoder = nn.Sequential(
             nn.Linear(latent_dim, self.encoded_dim),
-            nn.Unflatten(1, (256, 2, 8, 8)),
+            nn.Unflatten(1, (256, 2, 12, 12)),
 
-            nn.ConvTranspose3d(256, 128, kernel_size=2, stride=2),
+            nn.ConvTranspose3d(256, 128, kernel_size=3, padding=1),
             nn.BatchNorm3d(128),
             nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode='nearest'),
 
-            nn.ConvTranspose3d(128, 64, kernel_size=2, stride=2),
+            nn.ConvTranspose3d(128, 64, kernel_size=3, padding=1),
             nn.BatchNorm3d(64),
             nn.ReLU(),
+            nn.Upsample(scale_factor=2, mode='nearest'),
 
-            nn.ConvTranspose3d(64, input_channels, kernel_size=2, stride=2),
-            nn.Sigmoid()
+            nn.ConvTranspose3d(64, input_channels, kernel_size=3, padding=1),
+            nn.Sigmoid(),
+            nn.Upsample(scale_factor=2, mode='nearest')
         )
 
         self._print_model_summary()

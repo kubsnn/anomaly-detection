@@ -110,7 +110,12 @@ def load_model(model_path: str, config_path: str, device: torch.device):
 
     # add ../.. to every path in the config
     for i in range(len(config['test_paths'])):
-        config['test_paths'][i] = os.path.join("../..", config['test_paths'][i])
+        # Extract the directory and filename from the existing path
+        dir_path, filename = os.path.split(config['test_paths'][i])
+        # Construct the new path with 'split' directory
+        new_path = os.path.join(dir_path, 'split', filename)
+        # Update the path in the config
+        config['test_paths'][i] = os.path.join("../..", new_path)
 
     return model, config
 
@@ -147,10 +152,10 @@ def prepare_test_loader(config: dict) -> DataLoader:
         logger.error("No test paths found in config. Check the dataset preparation steps.")
         raise ValueError("No test paths found in config.")
 
-    test_paths =  [sorted(config['test_paths'])[9]]
-    print(test_paths)
+    test_paths = config['test_paths']
+    
     # remove 98% of paths that starts with 'N'
-    #test_paths = remove_90_percent_of_paths(test_paths)
+    test_paths = remove_90_percent_of_paths(test_paths)
 
     # Create the dataset from these test paths
     test_dataset = VideoClipDataset(
@@ -199,7 +204,7 @@ def evaluate_with_metrics(model, loader, device, num_classes=2):
     mean_loss = total_loss / len(loader.dataset) if len(loader.dataset) > 0 else 0
 
     # Determine the best threshold
-    best_threshold, best_metrics = get_best_threshold(all_mse, all_labels)
+    best_threshold, best_metrics = find_best_threshold(all_mse, all_labels)
 
     # Compute confusion matrix with the best threshold
     y_pred = (all_mse > best_threshold).long()

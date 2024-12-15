@@ -2,14 +2,96 @@ import argparse
 import datetime
 import os
 import json
+import cv2
+from matplotlib import pyplot as plt
+import numpy as np
 import torch
 import random
+from data.clipper import VideoClipDataset
 from utils import setup_logging, evaluate_model, list_available_models, select_model
 from training import create_dataloaders, train_and_evaluate
 from testing import evaluate_with_metrics, log_metrics
 from models.autoencoder import VideoAutoencoder
 
 logger = setup_logging(__name__)
+
+
+def load_snapshot_model(CONFIG, device, snapshot_name):
+    try:
+        snapshot_path = os.path.join(CONFIG['snapshot_dir'], f"{snapshot_name}.pth")
+        config_path = snapshot_path.replace(".pth", ".json")
+        optimizer_path = snapshot_path.replace(".pth", "-optimizer.pth")
+
+        if not os.path.exists(config_path):
+            logger.error(f"Configuration file not found: {config_path}")
+            return None, None, None
+
+        with open(config_path, 'r') as f:
+            loaded_config = json.load(f)
+
+        # Load model state
+        model = VideoAutoencoder(
+            input_channels=loaded_config['input_channels'],
+            latent_dim=loaded_config['latent_dim']
+        ).to(device)
+        model.load_state_dict(torch.load(snapshot_path, map_location=device))
+
+        # Load optimizer state
+        optimizer = torch.optim.Adam(model.parameters())
+        if os.path.exists(optimizer_path):
+            optimizer.load_state_dict(torch.load(optimizer_path, map_location=device))
+            logger.info(f"Optimizer state loaded from: {optimizer_path}")
+        else:
+            logger.warning("Optimizer snapshot not found. Optimizer will start fresh.")
+
+        return model, optimizer, loaded_config
+
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        return None, None, None
+
+
+def initialize_new_model(CONFIG, device):
+    logger.info("Starting a new training session.")
+    model = VideoAutoencoder(
+        input_channels=CONFIG['input_channels'],
+        latent_dim=CONFIG['latent_dim']
+    ).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=CONFIG['learning_rate'])
+    return model, optimizer, CONFIG
+
+
+def visualize_frame(frame: np.ndarray, cmap: str = None):
+    """
+    Visualize a single video frame.
+
+    Args:
+        frame (np.ndarray): A frame of shape (H, W, C).
+        cmap (str): Colormap for grayscale visualization (default: None for RGB).
+    """
+    plt.figure(figsize=(5, 5))
+    if cmap:
+        plt.imshow(frame, cmap=cmap)
+    else:
+        plt.imshow(frame)
+    plt.axis('off')
+    plt.show()
+
+
+def visualize_clip(clip: np.ndarray, fps: int = 3, cmap: str = None):
+    """
+    Visualize a video clip as a sequence of frames.
+
+    Args:
+        clip (np.ndarray): Video clip of shape (T, H, W, C).
+        fps (int): Frames per second for visualization.
+        cmap (str): Colormap for grayscale visualization (default: None for RGB).
+    """
+    num_frames = clip.shape[0]
+    for i in range(num_frames):
+        plt.title(f"Frame {i + 1}/{num_frames}")
+        visualize_frame(clip[i], cmap)
+        plt.pause(1 / fps)
 
 def prepare_dataset_paths(CONFIG):
     """
@@ -63,6 +145,7 @@ def prepare_dataset_paths(CONFIG):
     # Combine balanced normal test paths with fight videos for the test set
     test_paths = normal_test_paths[:num_fight_test] + fight_videos
 
+
     # Log detailed split percentages
     total_videos = len(normal_videos) + len(fight_videos)
     train_percentage = (len(train_paths) / total_videos) * 100
@@ -79,54 +162,26 @@ def prepare_dataset_paths(CONFIG):
     logger.info(f"  - Normal videos in test set: {len(normal_test_paths[:num_fight_test])} ({normal_test_percentage:.2f}%)")
     logger.info(f"  - Fight videos in test set: {len(fight_videos)} ({fight_test_percentage:.2f}%)")
 
+    # Visualize a random clip from the training set
+    # clip_dataset = VideoClipDataset([train_paths[0]], CONFIG['clip_length'], clip_overlap=0.5, min_clips=1, augment=False, target_size=CONFIG['target_size'])
+
+    # clip, label = clip_dataset[0]
+
+    # # Ensure clip has the expected dimensions
+    # if clip.dim() == 4:  # Expected shape: [C, T, H, W]
+    #     clip = clip.permute(1, 2, 3, 0).numpy()  # Convert to [T, H, W, C]
+    # elif clip.dim() == 3:  # Shape: [C, H, W] (likely a single frame)
+    #     clip = clip.unsqueeze(1).permute(1, 2, 3, 0).numpy()  # Add a temporal dimension
+    # else:
+    #     raise ValueError(f"Unexpected tensor dimensions: {clip.shape}")
+
+    #     # Normalize clip back to [0, 255] for display
+    # clip = ((clip + 1) / 2 * 255).astype(np.uint8)
+    # cmap = 'gray' if clip.shape[-1] == 1 else None
+    # visualize_clip(clip, fps=3, cmap=cmap)
+
     CONFIG['train_paths'] = train_paths
     CONFIG['test_paths'] = test_paths
-
-
-
-def load_snapshot_model(CONFIG, device, snapshot_name):
-    try:
-        snapshot_path = os.path.join(CONFIG['snapshot_dir'], f"{snapshot_name}.pth")
-        config_path = snapshot_path.replace(".pth", ".json")
-        optimizer_path = snapshot_path.replace(".pth", "-optimizer.pth")
-
-        if not os.path.exists(config_path):
-            logger.error(f"Configuration file not found: {config_path}")
-            return None, None, None
-
-        with open(config_path, 'r') as f:
-            loaded_config = json.load(f)
-
-        # Load model state
-        model = VideoAutoencoder(
-            input_channels=loaded_config['input_channels'],
-            latent_dim=loaded_config['latent_dim']
-        ).to(device)
-        model.load_state_dict(torch.load(snapshot_path, map_location=device))
-
-        # Load optimizer state
-        optimizer = torch.optim.Adam(model.parameters(), lr=loaded_config['learning_rate'])
-        if os.path.exists(optimizer_path):
-            optimizer.load_state_dict(torch.load(optimizer_path, map_location=device))
-            logger.info(f"Optimizer state loaded from: {optimizer_path}")
-        else:
-            logger.warning("Optimizer snapshot not found. Optimizer will start fresh.")
-
-        return model, optimizer, loaded_config
-
-    except FileNotFoundError as e:
-        logger.error(str(e))
-        return None, None, None
-
-
-def initialize_new_model(CONFIG, device):
-    logger.info("Starting a new training session.")
-    model = VideoAutoencoder(
-        input_channels=CONFIG['input_channels'],
-        latent_dim=CONFIG['latent_dim']
-    ).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=CONFIG['learning_rate'])
-    return model, optimizer, CONFIG
 
 
 def main():
@@ -146,16 +201,17 @@ def main():
     # Configuration
     CONFIG = {
         'base_path': './data/UBI_FIGHTS',
-        'subset_size': 12500,
+        'subset_size': 10000,
         'batch_size': 16,
         'num_epochs': 100,
-        'learning_rate': 5e-3,
+        'learning_rate': 1e-3,
+       # 'weight_decay': 1e-4,  # Initial weight decay
         'clip_length': 16,
         'input_channels': 1,
         'latent_dim': 256,
-        'target_size': (64, 64),
+        'target_size': (96, 96),
         'reconstruction_threshold': 0.015,
-        'eval_interval': 5,
+        'eval_interval': 3,
         'snapshot_dir': './snapshots',
     }
 
@@ -178,7 +234,7 @@ def main():
                 logger.error("Failed to load the selected snapshot. Exiting.")
                 return
         else:
-            use_dvs = True #input("Use DVS-converted videos? (y/n): ").strip().lower() == 'y'
+            use_dvs = True  # Replace input prompt with fixed value if needed
             CONFIG['use_dvs'] = use_dvs
             prepare_dataset_paths(CONFIG)
             model, optimizer, CONFIG = initialize_new_model(CONFIG, device)
@@ -194,6 +250,7 @@ def main():
         return
 
     logger.info(f"Starting training with evaluation every {CONFIG['eval_interval']} epochs...")
+    
     train_and_evaluate(
         model, train_loader, val_loader, optimizer,
         CONFIG['num_epochs'], device, CONFIG['eval_interval'],
