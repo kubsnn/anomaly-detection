@@ -11,7 +11,7 @@ logger = setup_logging(__name__)
 
 class VideoClipDataset(Dataset):
     def __init__(self, video_paths, clip_length=16, clip_overlap=0.5, min_clips=1,
-                 augment=True, target_size=(128, 128)):
+                 augment=True, target_size=(96, 96)):
         """
         Initialize the video clip dataset.
 

@@ -59,7 +59,7 @@ class VideoAutoencoder(nn.Module):
             nn.Upsample(scale_factor=2, mode='nearest'),
 
             nn.ConvTranspose3d(64, input_channels, kernel_size=3, padding=1),
-            nn.Sigmoid(),
+            nn.Tanh(),
             nn.Upsample(scale_factor=2, mode='nearest')
         )
 

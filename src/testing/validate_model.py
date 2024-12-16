@@ -82,6 +82,48 @@ def find_best_threshold(mse_scores: torch.Tensor, labels: torch.Tensor) -> tuple
 
     return best_threshold, best_metrics
 
+def find_balanced_threshold(mse_scores: torch.Tensor, labels: torch.Tensor, alpha: float = 0.5) -> tuple:
+    """
+    Find the best threshold based on a balanced metric that combines F1 score 
+    and the balance between precision and recall.
+
+    Args:
+        mse_scores (torch.Tensor): MSE scores from the autoencoder.
+        labels (torch.Tensor): Ground truth labels (binary).
+        alpha (float): Weight for balancing F1 score and precision-recall difference (0 to 1).
+                      0.5 gives equal importance to F1 score and balance.
+
+    Returns:
+        tuple: (best_threshold, best_metrics) where metrics include accuracy, precision, recall, F1 score, etc.
+    """
+    thresholds = torch.linspace(mse_scores.min(), mse_scores.max(), steps=200)
+    print(mse_scores.min(), mse_scores.max())
+    best_score = 0.0
+    best_threshold = thresholds[0]
+    best_metrics = None
+
+    for threshold in thresholds:
+        preds = (mse_scores > threshold).long()
+        metrics = compute_binary_classification_metrics(labels, preds)
+        
+        precision = metrics['precision']
+        recall = metrics['recall']
+        f1_score = metrics['f1_score']
+        
+        # Add a penalty for imbalanced precision and recall
+        precision_recall_balance = 1 - abs(precision - recall)  # Maximum balance = 1 when precision == recall
+
+        # Combine F1 score and balance metric
+        combined_score = alpha * f1_score + (1 - alpha) * precision_recall_balance
+
+        if combined_score > best_score:
+            best_score = combined_score
+            best_threshold = threshold.item()
+            best_metrics = metrics
+
+    return best_threshold, best_metrics
+
+
 def load_model(model_path: str, config_path: str, device: torch.device):
     """Load the model and its configuration."""
     if not os.path.exists(config_path):
@@ -108,14 +150,14 @@ def load_model(model_path: str, config_path: str, device: torch.device):
     config['base_path'] = os.path.join("../..", config['base_path'])
     print(config['base_path'])
 
-    # add ../.. to every path in the config
-    for i in range(len(config['test_paths'])):
-        # Extract the directory and filename from the existing path
-        dir_path, filename = os.path.split(config['test_paths'][i])
-        # Construct the new path with 'split' directory
-        new_path = os.path.join(dir_path, 'split', filename)
-        # Update the path in the config
-        config['test_paths'][i] = os.path.join("../..", new_path)
+    # # add ../.. to every path in the config
+    # for i in range(len(config['test_paths'])):
+    #     # Extract the directory and filename from the existing path
+    #     dir_path, filename = os.path.split(config['test_paths'][i])
+    #     # Construct the new path with 'split' directory
+    #     new_path = os.path.join(dir_path, 'split', filename)
+    #     # Update the path in the config
+    #     config['test_paths'][i] = os.path.join("../..", new_path)
 
     return model, config
 
@@ -155,7 +197,10 @@ def prepare_test_loader(config: dict) -> DataLoader:
     test_paths = config['test_paths']
     
     # remove 98% of paths that starts with 'N'
-    test_paths = remove_90_percent_of_paths(test_paths)
+   # test_paths = remove_90_percent_of_paths(test_paths)
+    # add '../..' to the paths
+    test_paths = [os.path.join("../..", path) for path in test_paths]
+
 
     # Create the dataset from these test paths
     test_dataset = VideoClipDataset(
@@ -204,7 +249,7 @@ def evaluate_with_metrics(model, loader, device, num_classes=2):
     mean_loss = total_loss / len(loader.dataset) if len(loader.dataset) > 0 else 0
 
     # Determine the best threshold
-    best_threshold, best_metrics = find_best_threshold(all_mse, all_labels)
+    best_threshold, best_metrics = find_balanced_threshold(all_mse, all_labels)
 
     # Compute confusion matrix with the best threshold
     y_pred = (all_mse > best_threshold).long()

@@ -57,7 +57,7 @@ def initialize_new_model(CONFIG, device):
         input_channels=CONFIG['input_channels'],
         latent_dim=CONFIG['latent_dim']
     ).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=CONFIG['learning_rate'])
+    optimizer = torch.optim.Adam(model.parameters(), lr=CONFIG['learning_rate'], amsgrad=True, betas=(CONFIG['beta1'], CONFIG['beta2']))
     return model, optimizer, CONFIG
 
 
@@ -201,17 +201,19 @@ def main():
     # Configuration
     CONFIG = {
         'base_path': './data/UBI_FIGHTS',
-        'subset_size': 10000,
+        'subset_size': 5000,
         'batch_size': 16,
         'num_epochs': 100,
         'learning_rate': 1e-3,
+        'beta1': 0.9,
+        'beta2': 0.999,
        # 'weight_decay': 1e-4,  # Initial weight decay
         'clip_length': 16,
         'input_channels': 1,
         'latent_dim': 256,
         'target_size': (96, 96),
         'reconstruction_threshold': 0.015,
-        'eval_interval': 3,
+        'eval_interval': 1,
         'snapshot_dir': './snapshots',
     }
 
