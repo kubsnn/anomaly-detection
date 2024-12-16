@@ -12,6 +12,8 @@ from utils import setup_logging
 from tqdm import tqdm
 import json
 import glob
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve, auc
 
 logger = setup_logging(__name__)
 
@@ -27,6 +29,22 @@ def confusion_matrix(y_true: torch.Tensor, y_pred: torch.Tensor, num_classes: in
     for t, p in zip(y_true.view(-1), y_pred.view(-1)):
         cm[t.long(), p.long()] += 1
     return cm
+
+def generate_roc_curve(y_true, y_scores):
+    """Generate and plot the Receiver Operating Characteristic (ROC) curve."""
+    fpr, tpr, _ = roc_curve(y_true, y_scores)
+    roc_auc = auc(fpr, tpr)
+    
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:0.2f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic')
+    plt.legend(loc="lower right")
+    plt.show()
 
 def compute_binary_classification_metrics(y_true: torch.Tensor, y_pred: torch.Tensor) -> dict:
     """Compute accuracy, precision, recall, and F1 score for binary classification."""
@@ -257,6 +275,8 @@ def evaluate_with_metrics(model, loader, device, num_classes=2):
 
     cm = confusion_matrix(y_true, y_pred, num_classes)
     jaccard = jaccard_index(y_true, y_pred)
+
+    generate_roc_curve(y_true, all_mse)
 
     return {
         "mean_loss": mean_loss,
