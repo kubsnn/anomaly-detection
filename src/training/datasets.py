@@ -17,10 +17,11 @@ def create_dataloaders(train_paths, val_paths, test_paths, config):
     val_dataset = Subset(val_dataset, balanced_val_clips)
     test_dataset = Subset(test_dataset, balanced_test_clips)
 
+    num_workers = config['num_workers']
     # Define data loaders
-    train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True, num_workers=16, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=config['batch_size'], shuffle=False, num_workers=16, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False, num_workers=16, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True, num_workers=num_workers, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=config['batch_size'], shuffle=False, num_workers=num_workers, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False, num_workers=num_workers, pin_memory=True)
 
     return train_loader, val_loader, test_loader
 

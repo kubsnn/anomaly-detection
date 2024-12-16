@@ -8,12 +8,27 @@ import numpy as np
 import torch
 import random
 from data.clipper import VideoClipDataset
-from utils import setup_logging, evaluate_model, list_available_models, select_model
+from utils import setup_logging, evaluate_model, list_available_models, select_model, get_params
 from training import create_dataloaders, train_and_evaluate
 from testing import evaluate_with_metrics, log_metrics
 from models.autoencoder import VideoAutoencoder
 
+
 logger = setup_logging(__name__)
+
+def log_config(config: dict):
+    """
+    Log the configuration in a formatted and structured way.
+
+    Args:
+        config (dict): Configuration dictionary to log.
+        logger (Logger): Logger instance to use for logging.
+    """
+    logger.info("Configuration:")
+    for key, value in config.items():
+        logger.info(f">  {key}: {value}")
+
+    print('')
 
 
 def load_snapshot_model(CONFIG, device, snapshot_name):
@@ -93,12 +108,12 @@ def visualize_clip(clip: np.ndarray, fps: int = 3, cmap: str = None):
         visualize_frame(clip[i], cmap)
         plt.pause(1 / fps)
 
-def prepare_dataset_paths(CONFIG):
+def prepare_dataset_paths(CONFIG: dict):
     """
     Prepare dataset paths:
     - If use_dvs is True, use './data/UBI_FIGHTS/v2e/videos/normal' and '.../fight'
       Otherwise, use './data/UBI_FIGHTS/videos/normal' and '.../fight'
-    - Perform 80/20 split on normal videos for train/test.
+    - Perform 85/15 split on normal videos for train/test.
     - Ensure the test set is balanced between normal and fight videos.
     - Add excess normal videos (beyond the fight video count) to the training set.
     - Log detailed information about the split percentages.
@@ -125,7 +140,7 @@ def prepare_dataset_paths(CONFIG):
 
     # 80-20 split for normal videos
     total_normal = len(normal_videos)
-    train_count = int(total_normal * 0.8)
+    train_count = int(total_normal * 0.9)
     train_paths = normal_videos[:train_count]
     normal_test_paths = normal_videos[train_count:total_normal]
 
@@ -155,12 +170,12 @@ def prepare_dataset_paths(CONFIG):
     fight_test_percentage = len(fight_videos) / total_fight * 100
 
     logger.info(f"Dataset split:")
-    logger.info(f"- Total videos: {total_videos}")
-    logger.info(f"- Train set: {len(train_paths)} ({train_percentage:.2f}%)")
-    logger.info(f"  - Normal videos in train set: {len(train_paths) - len(excess_normal_test_paths)} ({normal_train_percentage:.2f}%)")
-    logger.info(f"- Test set: {len(test_paths)} ({test_percentage:.2f}%)")
-    logger.info(f"  - Normal videos in test set: {len(normal_test_paths[:num_fight_test])} ({normal_test_percentage:.2f}%)")
-    logger.info(f"  - Fight videos in test set: {len(fight_videos)} ({fight_test_percentage:.2f}%)")
+    logger.info(f">  Total selected videos: {total_videos}")
+    logger.info(f">  Train set: {len(train_paths)} ({train_percentage:.2f}%)")
+    logger.info(f"   >  Normal videos in train set: {len(train_paths) - len(excess_normal_test_paths)} ({normal_train_percentage:.2f}% out of selected normal videos)")
+    logger.info(f">  Test set: {len(test_paths)} ({test_percentage:.2f}%)")
+    logger.info(f"   >  Normal videos in test set: {len(normal_test_paths[:num_fight_test])} ({normal_test_percentage:.2f}% out of selected normal videos)")
+    logger.info(f"   >  Fight videos in test set: {len(fight_videos)} ({fight_test_percentage:.2f}% out of all fights)")
 
     # Visualize a random clip from the training set
     # clip_dataset = VideoClipDataset([train_paths[0]], CONFIG['clip_length'], clip_overlap=0.5, min_clips=1, augment=False, target_size=CONFIG['target_size'])
@@ -184,46 +199,38 @@ def prepare_dataset_paths(CONFIG):
     CONFIG['test_paths'] = test_paths
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Train or evaluate the Video Autoencoder.")
-    parser.add_argument('--load', type=str, help="Load a specific snapshot by its name (without extension).")
-    parser.add_argument('--no-load', action='store_true', help="Do not load any snapshot.")
-    args = parser.parse_args()
-
+def main(params: argparse.Namespace):
     startdate = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")  # Fixed program start date
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
 
-    # Create file to indicate the process started
-    with open(f"started-{startdate}", "w") as f:
-        f.write(f"{startdate}")
-
     # Configuration
     CONFIG = {
         'base_path': './data/UBI_FIGHTS',
-        'subset_size': 5000,
-        'batch_size': 16,
-        'num_epochs': 100,
-        'learning_rate': 1e-3,
-        'beta1': 0.9,
-        'beta2': 0.999,
-       # 'weight_decay': 1e-4,  # Initial weight decay
+        'subset_size': params.subset_size,
+        'batch_size': params.batch_size,
+        'num_epochs': params.epochs,
+        'eval_interval': params.eval_interval,
+        'num_workers': params.num_workers,
+        'learning_rate': params.learning_rate,
+        'beta1': params.beta1,
+        'beta2': params.beta2,
         'clip_length': 16,
         'input_channels': 1,
         'latent_dim': 256,
         'target_size': (96, 96),
-        'reconstruction_threshold': 0.015,
-        'eval_interval': 1,
         'snapshot_dir': './snapshots',
     }
 
-    if args.load:
-        model, optimizer, CONFIG = load_snapshot_model(CONFIG, device, args.load)
+    log_config(CONFIG)
+    CONFIG['current_epoch'] = 0
+    if params.load:
+        model, optimizer, CONFIG = load_snapshot_model(CONFIG, device, params.load)
         if model is None or optimizer is None:
             logger.error("Failed to load the specified snapshot. Exiting.")
             return
     else:
-        if args.no_load:
+        if params.no_load:
             load_snapshot = False
         else:
             load_snapshot = input("Do you want to load a previous snapshot? (y/n): ").strip().lower() == 'y'
@@ -266,6 +273,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        params = get_params()
+        main(params)
     except KeyboardInterrupt:
         logger.warning("Program interrupted by the user. Exiting gracefully.")

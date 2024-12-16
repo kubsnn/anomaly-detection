@@ -97,7 +97,6 @@ def find_balanced_threshold(mse_scores: torch.Tensor, labels: torch.Tensor, alph
         tuple: (best_threshold, best_metrics) where metrics include accuracy, precision, recall, F1 score, etc.
     """
     thresholds = torch.linspace(mse_scores.min(), mse_scores.max(), steps=200)
-    print(mse_scores.min(), mse_scores.max())
     best_score = 0.0
     best_threshold = thresholds[0]
     best_metrics = None
@@ -161,6 +160,7 @@ def load_model(model_path: str, config_path: str, device: torch.device):
 
     return model, config
 
+
 def remove_90_percent_of_paths(paths):
     """
     Remove 90% of paths that start with 'N'.
@@ -184,6 +184,7 @@ def remove_90_percent_of_paths(paths):
     filtered_paths = [path for path in paths if path not in paths_to_remove]
 
     return filtered_paths
+
 
 def prepare_test_loader(config: dict) -> DataLoader:
     """
@@ -222,6 +223,7 @@ def prepare_test_loader(config: dict) -> DataLoader:
 
     logger.info(f"Prepared test dataset with {len(test_dataset)} clips.")
     return test_loader
+
 
 def evaluate_with_metrics(model, loader, device, num_classes=2):
     model.eval()
