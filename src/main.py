@@ -72,7 +72,7 @@ def initialize_new_model(CONFIG, device):
         input_channels=CONFIG['input_channels'],
         latent_dim=CONFIG['latent_dim']
     ).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=CONFIG['learning_rate'], amsgrad=True, betas=(CONFIG['beta1'], CONFIG['beta2']))
+    optimizer = torch.optim.Adam(model.parameters(), lr=CONFIG['learning_rate'], amsgrad=False, betas=(CONFIG['beta1'], CONFIG['beta2']))
     return model, optimizer, CONFIG
 
 
@@ -217,13 +217,15 @@ def main(params: argparse.Namespace):
         'beta2': params.beta2,
         'clip_length': 16,
         'input_channels': 1,
-        'latent_dim': 256,
+        'latent_dim': 192,
         'target_size': (96, 96),
         'snapshot_dir': './snapshots',
     }
 
     log_config(CONFIG)
     CONFIG['current_epoch'] = 0
+    CONFIG['current_learning_rate'] = CONFIG['learning_rate']
+
     if params.load:
         model, optimizer, CONFIG = load_snapshot_model(CONFIG, device, params.load)
         if model is None or optimizer is None:

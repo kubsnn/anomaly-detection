@@ -14,10 +14,10 @@ class VideoAutoencoder(nn.Module):
         self.input_channels = input_channels
         self.latent_dim = latent_dim
 
-        # After 3 maxpool layers: T/8, H/8, W/8
-        self.encoded_dim = 256 * 2 * 12 * 12  # 256 channels * 2 frames * 12x12 spatial
+        # After 2 maxpool layers: T/4, H/4, W/4
+        self.encoded_dim = 128 * 4 * 24 * 24  # Adjusted dimensions after 2 layers
 
-        logger.info("Initializing VideoAutoencoder...")
+        logger.info("Initializing Reduced Complexity VideoAutoencoder with LeakyReLU...")
         logger.debug(f"Input channels: {self.input_channels}")
         logger.debug(f"Latent dimension: {self.latent_dim}")
         logger.debug(f"Encoded tensor dimensions: {self.encoded_dim}")
@@ -26,17 +26,12 @@ class VideoAutoencoder(nn.Module):
         self.encoder = nn.Sequential(
             nn.Conv3d(input_channels, 64, kernel_size=3, padding=1),
             nn.BatchNorm3d(64),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.MaxPool3d(kernel_size=2, stride=2),
 
             nn.Conv3d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm3d(128),
-            nn.ReLU(),
-            nn.MaxPool3d(kernel_size=2, stride=2),
-
-            nn.Conv3d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm3d(256),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.MaxPool3d(kernel_size=2, stride=2),
 
             nn.Flatten(),
@@ -46,20 +41,15 @@ class VideoAutoencoder(nn.Module):
         # Decoder
         self.decoder = nn.Sequential(
             nn.Linear(latent_dim, self.encoded_dim),
-            nn.Unflatten(1, (256, 2, 12, 12)),
-
-            nn.ConvTranspose3d(256, 128, kernel_size=3, padding=1),
-            nn.BatchNorm3d(128),
-            nn.ReLU(),
-            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Unflatten(1, (128, 4, 24, 24)),
 
             nn.ConvTranspose3d(128, 64, kernel_size=3, padding=1),
             nn.BatchNorm3d(64),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.Upsample(scale_factor=2, mode='nearest'),
 
             nn.ConvTranspose3d(64, input_channels, kernel_size=3, padding=1),
-            nn.Tanh(),
+            nn.Tanh(),  # Output for [-1, 1]
             nn.Upsample(scale_factor=2, mode='nearest')
         )
 

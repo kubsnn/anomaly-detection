@@ -38,7 +38,7 @@ def balance_clips_by_label(dataset):
     label_to_indices = defaultdict(list)
 
     # Collect indices based on labels
-    for idx, (_, label) in enumerate(dataset):
+    for idx, (_, label, _) in enumerate(dataset):
         label_to_indices[label].append(idx)
 
     # Find the minimum number of clips across labels

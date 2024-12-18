@@ -169,9 +169,10 @@ class VideoClipDataset(Dataset):
             idx (int): Clip index
 
         Returns:
-            tuple: (frames, label)
+            tuple: (frames, label, metadata)
                 frames: torch.Tensor of shape [C, T, H, W]
                 label: int (0 or 1)
+                metadata: dict with video_path and other information
         """
         try:
             clip_info = self.clips[idx]
@@ -196,8 +197,10 @@ class VideoClipDataset(Dataset):
             assert frames.shape == expected_shape, \
                 f"Wrong shape: got {frames.shape}, expected {expected_shape}"
 
-            return frames, label  # Return both frames and label
+            # Return frames, label, and metadata
+            return frames, label, {"video_path": video_path}
 
         except Exception as e:
             logger.error(f"Error in __getitem__ for index {idx}: {str(e)}")
             raise
+

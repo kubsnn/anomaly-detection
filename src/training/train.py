@@ -14,6 +14,7 @@ def update_weight_decay(optimizer, new_weight_decay):
     logger.info(f"Updated weight decay to: {new_weight_decay}")
 
 from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 def train_and_evaluate(model, train_loader, val_loader, optimizer, num_epochs, device, eval_interval, config, startdate, dvs=False, snapshot_dir="./snapshots"):
     best_f1 = 0.0
@@ -24,7 +25,7 @@ def train_and_evaluate(model, train_loader, val_loader, optimizer, num_epochs, d
     max_epochs = curr_epoch + num_epochs
 
     # Initialize the learning rate scheduler
-    scheduler = StepLR(optimizer, step_size=3, gamma=0.75)  # Halve LR every 5 epochs
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2, threshold=2e-2, cooldown=1)
 
     for epoch in range(1, num_epochs + 1):
         config["current_epoch"] = epoch + curr_epoch
@@ -34,9 +35,9 @@ def train_and_evaluate(model, train_loader, val_loader, optimizer, num_epochs, d
         epoch_loss = 0.0
         num_batches = len(train_loader)
 
-        progress_bar = tqdm(train_loader, desc=f"Training (Epoch {config['current_epoch']}/{max_epochs})", leave=False)
+        progress_bar = tqdm(train_loader, desc=f"Training (Epoch {config['current_epoch']}/{max_epochs})", leave=True)
         
-        for batch, _ in progress_bar:
+        for batch, _, _ in progress_bar:
             batch = batch.to(device)
             optimizer.zero_grad()
             _, reconstructed = model(batch)
@@ -48,10 +49,15 @@ def train_and_evaluate(model, train_loader, val_loader, optimizer, num_epochs, d
             avg_loss = epoch_loss / (progress_bar.n + 1)
             progress_bar.set_postfix(avg_loss=f"{avg_loss:.6f}")
 
-        # Step the scheduler to adjust the learning rate
-        scheduler.step()
+        progress_bar.close()
+
+
+        # Step the scheduler to adjust the learning rate based on validation F1 score
+        scheduler.step(avg_loss)
         current_lr = optimizer.param_groups[0]['lr']
-        logger.info(f"Epoch {epoch} - Learning Rate: {current_lr:.6e}")
+        config["current_learning_rate"] = current_lr
+
+        logger.info(f"Learning Rate: {current_lr:.6e}")
 
         # Log average loss for the epoch
         avg_epoch_loss = epoch_loss / num_batches
