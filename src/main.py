@@ -119,11 +119,11 @@ def prepare_dataset_paths(CONFIG: dict):
     - Log detailed information about the split percentages.
     """
     if CONFIG['use_dvs']:
-        normal_dir = os.path.join(CONFIG['base_path'], 'v2e', 'videos', 'normal', 'split')
-        fight_dir = os.path.join(CONFIG['base_path'], 'v2e', 'videos', 'fight', 'split')
+        normal_dir = os.path.join(CONFIG['base_path'], 'v2e', 'videos', 'normal')
+        fight_dir = os.path.join(CONFIG['base_path'], 'v2e', 'videos', 'fight')
     else:
-        normal_dir = os.path.join(CONFIG['base_path'], 'videos', 'normal', 'split')
-        fight_dir = os.path.join(CONFIG['base_path'], 'videos', 'fight', 'split')
+        normal_dir = os.path.join(CONFIG['base_path'], 'videos', 'normal')
+        fight_dir = os.path.join(CONFIG['base_path'], 'videos', 'fight')
 
     normal_videos = [os.path.join(normal_dir, f) for f in os.listdir(normal_dir) if f.endswith('.mp4')]
     fight_videos = [os.path.join(fight_dir, f) for f in os.listdir(fight_dir) if f.endswith('.mp4')]

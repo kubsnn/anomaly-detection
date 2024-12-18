@@ -24,7 +24,7 @@ def train_and_evaluate(model, train_loader, val_loader, optimizer, num_epochs, d
     max_epochs = curr_epoch + num_epochs
 
     # Initialize the learning rate scheduler
-    scheduler = StepLR(optimizer, step_size=3, gamma=0.75)  # Halve LR every 5 epochs
+    scheduler = StepLR(optimizer, step_size=4, gamma=0.725)
 
     for epoch in range(1, num_epochs + 1):
         config["current_epoch"] = epoch + curr_epoch
