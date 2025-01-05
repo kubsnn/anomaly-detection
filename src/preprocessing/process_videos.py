@@ -12,7 +12,76 @@ from frame_sampling import video_capture, video_writer, create_offset_samples
 logger = setup_logging(__name__)
 
 
-# [detect_content_area function remains the same]
+def detect_content_area(frame, threshold=30):
+    if frame is None:
+        return None
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
+    target_ratio = 16 / 9
+
+    def is_content_row(values, threshold):
+        std = np.std(values)
+        return std > threshold / 2
+
+    def is_content_col(values, threshold):
+        std = np.std(values)
+        mean = np.mean(values)
+        return std > threshold / 8 or (mean > threshold and mean < 255 - threshold)
+
+    left = 0
+    right = w - 1
+    top = 0
+    bottom = h - 1
+
+    for x in range(w // 2):
+        if is_content_col(gray[:, x], threshold):
+            left = x
+            break
+
+    for x in range(w - 1, w // 2, -1):
+        if is_content_col(gray[:, x], threshold):
+            right = x
+            break
+
+    for y in range(h // 2):
+        if is_content_row(gray[y, :], threshold):
+            top = y
+            break
+
+    for y in range(h - 1, h // 2, -1):
+        if is_content_row(gray[y, :], threshold):
+            bottom = y
+            break
+
+    content_width = right - left
+    content_height = bottom - top
+    current_ratio = content_width / content_height
+
+    # Force 16:9 ratio by cropping excess content
+    if current_ratio < target_ratio:
+        # Video is too tall 4:3 - crop height
+        required_height = int(content_width / target_ratio)
+        excess_height = content_height - required_height
+
+        top += excess_height // 2
+        bottom -= excess_height // 2
+    else:
+        # Video is too wide - crop width
+        required_width = int(content_height * target_ratio)
+        excess_width = content_width - required_width
+
+        left += excess_width // 2
+        right -= excess_width // 2
+
+    # Add a small margin to ensure no white edges
+    margin = 2
+    left = left + margin
+    right = right - margin
+    top = top + margin
+    bottom = bottom - margin
+
+    return (left, right, top, bottom)
 
 def process_video(input_path: Path, output_dir: Path, version_start: int,
                   target_fps: int = 3, target_size: tuple = (320, 180)):
