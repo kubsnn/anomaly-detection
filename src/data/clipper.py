@@ -10,8 +10,7 @@ from tqdm import tqdm
 logger = setup_logging(__name__)
 
 class VideoClipDataset(Dataset):
-    def __init__(self, video_paths, clip_length=16, clip_overlap=0.5, min_clips=1,
-                 augment=True, target_size=(96, 96)):
+    def __init__(self, video_paths, clip_length=16, clip_overlap=0.5, min_clips=1, target_size=(96, 96)):
         """
         Initialize the video clip dataset.
 
@@ -20,14 +19,12 @@ class VideoClipDataset(Dataset):
             clip_length (int): Number of frames per clip
             clip_overlap (float): Overlap between consecutive clips (0-1)
             min_clips (int): Minimum number of clips per video
-            augment (bool): Whether to apply augmentation
             target_size (tuple): Target frame size (height, width)
         """
         self.video_paths = video_paths
         self.clip_length = clip_length
         self.clip_overlap = clip_overlap
         self.min_clips = min_clips
-        self.augment = augment
         self.target_size = target_size
 
         # Pre-compute clips for each video

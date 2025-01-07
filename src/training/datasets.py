@@ -7,9 +7,9 @@ from collections import defaultdict
 
 def create_dataloaders(train_paths, val_paths, test_paths, config):
     # Define datasets
-    train_dataset = VideoClipDataset(train_paths, config['clip_length'], clip_overlap=0.5, min_clips=1, augment=True, target_size=config['target_size'])
-    val_dataset = VideoClipDataset(val_paths, config['clip_length'], clip_overlap=0.5, min_clips=1, augment=False, target_size=config['target_size'])
-    test_dataset = VideoClipDataset(test_paths, config['clip_length'], clip_overlap=0.5, min_clips=1, augment=False, target_size=config['target_size'])
+    train_dataset = VideoClipDataset(train_paths, config['clip_length'], clip_overlap=0.5, min_clips=1, target_size=config['target_size'])
+    val_dataset = VideoClipDataset(val_paths, config['clip_length'], clip_overlap=0.5, min_clips=1, target_size=config['target_size'])
+    test_dataset = VideoClipDataset(test_paths, config['clip_length'], clip_overlap=0.5, min_clips=1, target_size=config['target_size'])
 
     # Balance the validation dataset
     balanced_val_clips = balance_clips_by_label(val_dataset)

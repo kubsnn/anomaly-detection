@@ -229,7 +229,6 @@ def prepare_test_loader(config: dict) -> DataLoader:
         clip_length=config['clip_length'],
         clip_overlap=0.5,
         min_clips=1,
-        augment=False,
         target_size=config['target_size']
     )
 
