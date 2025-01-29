@@ -1,5 +1,5 @@
 import sys, os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..')) # Add src/ directory to the path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..')) 
 from pathlib import Path
 import cv2
 from tqdm import tqdm
@@ -66,7 +66,7 @@ def split_video(video_path, split_dir, segment_length):
                     try:
                         shutil.copy(video_path, copied_path)
                         logger.info(f"Copied short video to output: {copied_path}")
-                        return 1, 0  # 1 copied video, 0 segments created
+                        return 1, 0  
                     except Exception as e:
                         logger.error(f"Failed to copy short video: {video_path}, error: {str(e)}")
                 else:
@@ -80,7 +80,6 @@ def split_video(video_path, split_dir, segment_length):
             num_segments = (total_frames - 1) // segment_frames
             segments_created = 0
 
-            # Process full segments
             for segment in range(num_segments):
                 start_frame = segment * segment_frames
                 segment_path = split_dir / f"{video_path.stem}_s{segment}.mp4"
@@ -92,7 +91,7 @@ def split_video(video_path, split_dir, segment_length):
 
                 segments_created += 1
 
-            # Handle last segment (remaining frames)
+            #  remaining frames
             start_frame = num_segments * segment_frames
             segment_path = split_dir / f"{video_path.stem}_s{num_segments}.mp4"
             if not write_segment(
@@ -102,7 +101,7 @@ def split_video(video_path, split_dir, segment_length):
             else:
                 segments_created += 1
 
-            return 0, segments_created  # 0 copied videos, N segments created
+            return 0, segments_created  
     except Exception as e:
         logger.error(f"Error splitting {video_path.name}: {str(e)}")
         return 0, 0
