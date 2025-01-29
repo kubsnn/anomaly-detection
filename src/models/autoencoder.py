@@ -5,7 +5,7 @@ from utils import setup_logging
 
 
 
-logger = setup_logging(__name__)  # Logger instance for this module
+logger = setup_logging(__name__) 
 
 
 class VideoAutoencoder(nn.Module):
@@ -49,7 +49,7 @@ class VideoAutoencoder(nn.Module):
             nn.Upsample(scale_factor=2, mode='nearest'),
 
             nn.ConvTranspose3d(64, input_channels, kernel_size=3, padding=1),
-            nn.Tanh(),  # Output for [-1, 1]
+            nn.Tanh(),  
             nn.Upsample(scale_factor=2, mode='nearest')
         )
 
