@@ -108,7 +108,6 @@ class Pipeline:
             # Step 7: Create dataset splits from segmented videos
             self.create_datasets(train_ratio, val_ratio)
 
-            # Log completion
             total_duration = time.time() - self.start_time
             logger.info("\n" + "#" * 60)
             logger.info("Pipeline Completed Successfully!")
@@ -123,15 +122,13 @@ class Pipeline:
             raise
 
 def main():
-    # Set the base path for the dataset
     base_path = "../../data/UBI_FIGHTS"
 
-    # Create and run the pipeline with default parameters
     pipeline = Pipeline(base_path)
     pipeline.run(
-        segment_length=10,  # 10-second segments
-        train_ratio=0.7,   # 70% of normal videos for training
-        val_ratio=0.15     # 15% of normal videos for validation
+        segment_length=10,  
+        train_ratio=0.7,   
+        val_ratio=0.15    
     )
 
 if __name__ == "__main__":
