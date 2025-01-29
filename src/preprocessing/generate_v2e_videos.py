@@ -46,14 +46,12 @@ def convert_to_dvs(input_video: Path, output_dir: Path, disable_slomo: bool = Tr
         logger.info(f"DVS video already exists: {dvs_output_file}")
         return
 
-    # Get resolution of the input video
     try:
         width, height = get_video_resolution(input_video)
     except Exception as e:
         logger.error(f"Could not determine resolution of {input_video}: {e}")
         return
-
-    # Prepare v2e command
+# v2e
     command = [
         "v2e",
         "--input", str(input_video),
@@ -91,7 +89,6 @@ def process_directory(base_path: Path, category: str, split: str):
         logger.warning(f"Processed directory not found: {processed_dir}")
         return 0, 0, 0
 
-    # Find all processed videos
     video_files = list(processed_dir.glob("*.mp4")) + list(processed_dir.glob("*.avi"))
     video_files = [f for f in video_files if f.is_file()]
 
@@ -107,13 +104,11 @@ def process_directory(base_path: Path, category: str, split: str):
         try:
             dvs_video_dir = dvs_output_dir / video_path.stem
 
-            # Skip if already processed
             if dvs_video_dir.exists():
                 logger.debug(f"Skipping existing video: {video_path}")
                 total_skipped += 1
                 continue
 
-            # Convert to DVS events
             convert_to_dvs(video_path, dvs_video_dir)
             total_processed += 1
 
@@ -151,7 +146,6 @@ def apply_v2e_to_processed_videos(base_path: str):
 
 
 if __name__ == "__main__":
-    # Set the base path for the dataset
     base_path = "../../data/UBI_FIGHTS"
 
     try:
