@@ -101,7 +101,7 @@ class VideoClipDataset(Dataset):
 
         logger.info(f"Pre-computing clips for {len(self.video_paths)} videos...")
         all_clips = []
-        with ThreadPoolExecutor(max_workers=16) as executor:  # Adjust `max_workers` based on your CPU
+        with ThreadPoolExecutor(max_workers=16) as executor:  # Adjust `max_workers` based on CPU
             future_to_video = {executor.submit(process_video, video): video for video in self.video_paths}
 
             for future in tqdm(as_completed(future_to_video), total=len(self.video_paths), desc="Processing videos"):
@@ -143,7 +143,7 @@ class VideoClipDataset(Dataset):
                     frames.append(np.zeros((self.target_size[0], self.target_size[1], 1),
                                            dtype=np.uint8))
             else:
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)  
                 frame = cv2.resize(frame, (self.target_size[1], self.target_size[0]),
                                    interpolation=cv2.INTER_AREA)
                 frame = frame / 255.0  # Normalize to [0, 1]
@@ -174,7 +174,7 @@ class VideoClipDataset(Dataset):
         try:
             clip_info = self.clips[idx]
             video_path = clip_info['video_path']
-            label = clip_info['label']  # Retrieve the label
+            label = clip_info['label']  
 
             frames = self._load_clip(
                 video_path,
@@ -185,16 +185,14 @@ class VideoClipDataset(Dataset):
 
             logger.debug(f"Loaded clip shape: {frames.shape}")
 
-            # Convert to tensor and normalize
             frames = torch.FloatTensor(frames)
             frames = frames.permute(3, 0, 1, 2)  # [C, T, H, W]
-            frames = torch.clip(frames, -1, 1)  # Ensure the values remain between -1 and 1
+            frames = torch.clip(frames, -1, 1) 
 
             expected_shape = (1, self.clip_length, self.target_size[0], self.target_size[1])
             assert frames.shape == expected_shape, \
                 f"Wrong shape: got {frames.shape}, expected {expected_shape}"
 
-            # Return frames, label, and metadata
             return frames, label, {"video_path": video_path}
 
         except Exception as e:
