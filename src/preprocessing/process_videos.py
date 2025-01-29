@@ -60,21 +60,20 @@ def detect_content_area(frame, threshold=30):
 
     # Force 16:9 ratio by cropping excess content
     if current_ratio < target_ratio:
-        # Video is too tall 4:3 - crop height
+        # 4:3 - crop height
         required_height = int(content_width / target_ratio)
         excess_height = content_height - required_height
 
         top += excess_height // 2
         bottom -= excess_height // 2
     else:
-        # Video is too wide - crop width
+        #  crop width
         required_width = int(content_height * target_ratio)
         excess_width = content_width - required_width
 
         left += excess_width // 2
         right -= excess_width // 2
 
-    # Add a small margin to ensure no white edges
     margin = 2
     left = left + margin
     right = right - margin
@@ -98,9 +97,7 @@ def process_video(input_path: Path, output_dir: Path, version_start: int,
     Returns:
         int: Number of versions created
     """
-    # First detect content area
     with video_capture(input_path) as cap:
-        # Sample frames uniformly across the video
         sample_frames = 5
         frame_positions = np.linspace(0, cap.get(cv2.CAP_PROP_FRAME_COUNT) - 1, sample_frames, dtype=int)
 
@@ -123,19 +120,16 @@ def process_video(input_path: Path, output_dir: Path, version_start: int,
         if not lefts:
             raise ValueError(f"Could not detect content area in {input_path}")
 
-        # Use median values for stable cropping
         left = int(np.median(lefts))
         right = int(np.median(rights))
         top = int(np.median(tops))
         bottom = int(np.median(bottoms))
 
-    # Create temporary directory for intermediate files
     temp_dir = output_dir / "temp"
     temp_dir.mkdir(exist_ok=True)
     temp_cropped = temp_dir / f"crop_{input_path.name}"
 
     try:
-        # First pass: Crop the video
         with video_capture(input_path) as cap, \
                 video_writer(temp_cropped, int(cap.get(cv2.CAP_PROP_FPS)),
                              (right - left, bottom - top), is_color=True) as out:
@@ -150,7 +144,6 @@ def process_video(input_path: Path, output_dir: Path, version_start: int,
                 cropped = frame[top:bottom, left:right]
                 out.write(cropped)
 
-        # Second pass: Create sampled versions
         num_versions, output_paths = create_offset_samples(
             temp_cropped,
             output_dir,
@@ -164,7 +157,6 @@ def process_video(input_path: Path, output_dir: Path, version_start: int,
         return num_versions
 
     finally:
-        # Clean up temporary files
         if temp_cropped.exists():
             temp_cropped.unlink()
         if temp_dir.exists():
@@ -185,16 +177,13 @@ def process_dataset(input_dir: str, output_dir: str):
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
 
-    # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize counters
     total_source_processed = 0
     total_versions_created = 0
     total_errors = 0
     current_version = 0
 
-    # Find all video files
     video_files = list(input_dir.glob('*.mp4')) + list(input_dir.glob('*.avi'))
     video_files = [f for f in video_files if f.is_file()]
 
@@ -202,13 +191,11 @@ def process_dataset(input_dir: str, output_dir: str):
 
     for video_path in tqdm(video_files, desc="Processing videos"):
         try:
-            # Check for existing processed versions
             existing_versions = list(output_dir.glob(f"processed_{video_path.stem}_*{video_path.suffix}"))
             if existing_versions:
                 logger.debug(f"Skipping {video_path.name}: already processed")
                 continue
 
-            # Process the video
             num_versions = process_video(video_path, output_dir,
                                          version_start=current_version)
 
