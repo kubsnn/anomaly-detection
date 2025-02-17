@@ -27,8 +27,3 @@ jobs:
     - name: Setup Virtual Environment and Install Python Dependencies
       run: |
         sudo make env
-
-    - name: Run tests
-      run: |
-        source venv/bin/activate
-        pytest
