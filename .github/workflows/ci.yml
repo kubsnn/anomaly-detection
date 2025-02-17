@@ -32,7 +32,3 @@ jobs:
       run: |
         source venv/bin/activate
         pytest
-
-    - name: Deactivate virtual environment
-      run: deactivate
-      if: always()
