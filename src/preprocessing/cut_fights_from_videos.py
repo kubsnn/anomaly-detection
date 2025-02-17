@@ -24,11 +24,9 @@ def extract_fight_clips(base_path: Path, min_output_duration: float = 3.0):
     total_clips = 0
     discarded_clips = 0
 
-    # Create output directory
     output_directory = videos_directory / "cut_fights"
     output_directory.mkdir(exist_ok=True)
 
-    # Find all video files
     video_files = list(videos_directory.glob("*.mp4"))
     logger.info(f"Found {len(video_files)} videos to process")
 
@@ -57,7 +55,6 @@ def extract_fight_clips(base_path: Path, min_output_duration: float = 3.0):
             frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-            # Extract fight sequences
             fight_sequences = []
             in_fight = False
             start_frame = 0
@@ -71,12 +68,11 @@ def extract_fight_clips(base_path: Path, min_output_duration: float = 3.0):
                     end_frame = idx
                     fight_sequences.append((start_frame, end_frame))
 
-            # Handle case where video ends during a fight
+            # video ends during a fight
             if in_fight:
                 end_frame = len(annotations)
                 fight_sequences.append((start_frame, end_frame))
 
-            # Process fight sequences
             for start_frame, end_frame in fight_sequences:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
                 output_path = output_directory / f"{video_path.stem}_cut_{start_frame}_{end_frame}.mp4"
@@ -97,7 +93,6 @@ def extract_fight_clips(base_path: Path, min_output_duration: float = 3.0):
 
                     writer.release()
 
-                    # Check output video duration
                     output_duration = frames_written / fps
                     if output_duration < min_output_duration:
                         output_path.unlink()

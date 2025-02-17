@@ -6,18 +6,12 @@ This package contains neural network models used for video anomaly detection.
 Current models:
 - VideoAutoencoder: A convolutional autoencoder for encoding and decoding video data.
 
-Future models (planned):
-- BinaryClassifier: A classifier for determining if a video contains anomalies.
-
-Version: 0.1.0
-Author: RocketSteve
 License: MIT
 """
 
 import torch
 from typing import Dict, Any
 
-# Import models
 from .autoencoder import VideoAutoencoder
 
 

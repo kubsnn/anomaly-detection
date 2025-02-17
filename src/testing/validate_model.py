@@ -1,9 +1,13 @@
 # validate_model.py
 
+from collections import defaultdict
 import os
 import random
 import sys
+
+from sklearn.metrics import auc, roc_curve
 sys.path.append('..')
+from matplotlib import pyplot as plt
 import torch
 from torch.utils.data import DataLoader
 from data.clipper import VideoClipDataset
@@ -14,6 +18,22 @@ import json
 import glob
 
 logger = setup_logging(__name__)
+
+def generate_roc_curve(y_true, y_scores):
+    """Generate and plot the Receiver Operating Characteristic (ROC) curve."""
+    fpr, tpr, _ = roc_curve(y_true, y_scores)
+    roc_auc = auc(fpr, tpr)
+    
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:0.2f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic')
+    plt.legend(loc="lower right")
+    plt.show()
 
 def jaccard_index(y_true: torch.Tensor, y_pred: torch.Tensor) -> float:
     """Calculate the Jaccard Index between true and predicted masks."""
@@ -82,6 +102,47 @@ def find_best_threshold(mse_scores: torch.Tensor, labels: torch.Tensor) -> tuple
 
     return best_threshold, best_metrics
 
+def find_balanced_threshold(mse_scores: torch.Tensor, labels: torch.Tensor, alpha: float = 0.5) -> tuple:
+    """
+    Find the best threshold based on a balanced metric that combines F1 score 
+    and the balance between precision and recall.
+
+    Args:
+        mse_scores (torch.Tensor): MSE scores from the autoencoder.
+        labels (torch.Tensor): Ground truth labels (binary).
+        alpha (float): Weight for balancing F1 score and precision-recall difference (0 to 1).
+                      0.5 gives equal importance to F1 score and balance.
+
+    Returns:
+        tuple: (best_threshold, best_metrics) where metrics include accuracy, precision, recall, F1 score, etc.
+    """
+    thresholds = torch.linspace(mse_scores.min(), mse_scores.max(), steps=200)
+    best_score = 0.0
+    best_threshold = thresholds[0]
+    best_metrics = None
+
+    for threshold in thresholds:
+        preds = (mse_scores > threshold).long()
+        metrics = compute_binary_classification_metrics(labels, preds)
+        
+        precision = metrics['precision']
+        recall = metrics['recall']
+        f1_score = metrics['f1_score']
+        
+        # Add a penalty for imbalanced precision and recall
+        precision_recall_balance = 1 - abs(precision - recall)  # Maximum balance = 1 when precision == recall
+
+        # Combine F1 score and balance metric
+        combined_score = alpha * f1_score + (1 - alpha) * precision_recall_balance
+
+        if combined_score > best_score:
+            best_score = combined_score
+            best_threshold = threshold.item()
+            best_metrics = metrics
+
+    return best_threshold, best_metrics
+
+
 def load_model(model_path: str, config_path: str, device: torch.device):
     """Load the model and its configuration."""
     if not os.path.exists(config_path):
@@ -108,11 +169,17 @@ def load_model(model_path: str, config_path: str, device: torch.device):
     config['base_path'] = os.path.join("../..", config['base_path'])
     print(config['base_path'])
 
-    # add ../.. to every path in the config
+    # # add ../.. to every path in the config
     for i in range(len(config['test_paths'])):
-        config['test_paths'][i] = os.path.join("../..", config['test_paths'][i])
+        # Extract the directory and filename from the existing path
+        dir_path, filename = os.path.split(config['test_paths'][i])
+        # Construct the new path with 'split' directory
+        new_path = os.path.join(dir_path, 'split', filename)
+        # Update the path in the config
+        config['test_paths'][i] = new_path
 
     return model, config
+
 
 def remove_90_percent_of_paths(paths):
     """
@@ -138,6 +205,7 @@ def remove_90_percent_of_paths(paths):
 
     return filtered_paths
 
+
 def prepare_test_loader(config: dict) -> DataLoader:
     """
     Prepare the test DataLoader using paths from config['test_paths'].
@@ -147,10 +215,13 @@ def prepare_test_loader(config: dict) -> DataLoader:
         logger.error("No test paths found in config. Check the dataset preparation steps.")
         raise ValueError("No test paths found in config.")
 
-    test_paths =  [sorted(config['test_paths'])[9]]
-    print(test_paths)
+    test_paths = config['test_paths']
+    
     # remove 98% of paths that starts with 'N'
-    #test_paths = remove_90_percent_of_paths(test_paths)
+   # test_paths = remove_90_percent_of_paths(test_paths)
+    # add '../..' to the paths
+    test_paths = [os.path.join("../..", path) for path in test_paths]
+
 
     # Create the dataset from these test paths
     test_dataset = VideoClipDataset(
@@ -158,7 +229,6 @@ def prepare_test_loader(config: dict) -> DataLoader:
         clip_length=config['clip_length'],
         clip_overlap=0.5,
         min_clips=1,
-        augment=False,
         target_size=config['target_size']
     )
 
@@ -173,6 +243,7 @@ def prepare_test_loader(config: dict) -> DataLoader:
     logger.info(f"Prepared test dataset with {len(test_dataset)} clips.")
     return test_loader
 
+
 def evaluate_with_metrics(model, loader, device, num_classes=2):
     model.eval()
     total_loss = 0
@@ -181,7 +252,7 @@ def evaluate_with_metrics(model, loader, device, num_classes=2):
 
     with torch.no_grad():
         for batch in tqdm(loader, desc="Evaluating"):
-            frames, labels = batch  # Unpack frames and labels
+            frames, labels, _ = batch  # Unpack frames and labels
             frames = frames.to(device)
             labels = labels.to(device)
             # Forward pass
@@ -199,7 +270,7 @@ def evaluate_with_metrics(model, loader, device, num_classes=2):
     mean_loss = total_loss / len(loader.dataset) if len(loader.dataset) > 0 else 0
 
     # Determine the best threshold
-    best_threshold, best_metrics = get_best_threshold(all_mse, all_labels)
+    best_threshold, best_metrics = find_balanced_threshold(all_mse, all_labels)
 
     # Compute confusion matrix with the best threshold
     y_pred = (all_mse > best_threshold).long()
@@ -207,6 +278,8 @@ def evaluate_with_metrics(model, loader, device, num_classes=2):
 
     cm = confusion_matrix(y_true, y_pred, num_classes)
     jaccard = jaccard_index(y_true, y_pred)
+
+    #generate_roc_curve(y_true, all_mse)
 
     return {
         "mean_loss": mean_loss,
@@ -216,6 +289,134 @@ def evaluate_with_metrics(model, loader, device, num_classes=2):
         **best_metrics  # Include accuracy, precision, recall, f1_score
     }
 
+def evaluate_by_video(model, loader, device, num_classes=2):
+    """
+    Evaluate the model at the video level instead of clip level.
+
+    Args:
+        model: The trained model.
+        loader: DataLoader for the dataset.
+        device: The device (CPU or GPU) for computation.
+        num_classes: Number of classes (default: 2).
+
+    Returns:
+        dict: Aggregated evaluation metrics.
+    """
+    model.eval()
+    video_mse_scores = defaultdict(list)
+    video_labels = {}
+
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="Evaluating by Video"):
+            frames, labels, metadata = batch  # Unpack frames, labels, and metadata
+            frames = frames.to(device)
+            labels = labels.to(device)
+
+            # Forward pass
+            _, reconstructed = model(frames)
+            mse = torch.mean((frames - reconstructed) ** 2, dim=(1, 2, 3, 4))  # MSE per clip
+
+            # Group by video using video_path
+            for i, mse_score in enumerate(mse):
+                video_path = metadata["video_path"][i]  # Use the metadata directly
+                video_mse_scores[video_path].append(mse_score.item())
+                video_labels[video_path] = labels[i].item()
+
+    # Aggregate MSE scores for each video
+    aggregated_mse = {}
+    for video, mse_scores in video_mse_scores.items():
+        aggregated_mse[video] = sum(mse_scores) / len(mse_scores)  # Mean aggregation
+
+    # Convert to tensors for thresholding
+    mse_scores = torch.tensor(list(aggregated_mse.values()))
+    labels = torch.tensor(list(video_labels.values()))
+
+    # Determine the best threshold
+    best_threshold, best_metrics = find_balanced_threshold(mse_scores, labels)
+
+    # Compute confusion matrix with the best threshold
+    y_pred = (mse_scores > best_threshold).long()
+    y_true = labels.long()
+
+    cm = confusion_matrix(y_true, y_pred, num_classes)
+    jaccard = jaccard_index(y_true, y_pred)
+
+    return {
+        "mean_loss": mse_scores.mean().item(),
+        "jaccard": jaccard,
+        "confusion_matrix": cm,
+        "best_threshold": best_threshold,
+        **best_metrics,  # Include accuracy, precision, recall, f1_score
+    }
+
+
+from collections import defaultdict
+import torch
+from tqdm import tqdm
+
+def evaluate_by_video_threshold(model, loader, device, num_classes=2, clip_anomaly_threshold=0.0264, video_anomaly_ratio=0.5):
+    """
+    Evaluate the model at the video level. A video is considered an anomaly if
+    more than `video_anomaly_ratio` fraction of its clips are anomalies.
+
+    Args:
+        model: The trained model.
+        loader: DataLoader for the dataset.
+        device: The device (CPU or GPU) for computation.
+        num_classes: Number of classes (default: 2).
+        clip_anomaly_threshold: Threshold for marking individual clips as anomalies.
+        video_anomaly_ratio: Minimum fraction of clips that need to be anomalies for marking a video as anomaly.
+
+    Returns:
+        dict: Aggregated evaluation metrics.
+    """
+    model.eval()
+    video_clip_anomalies = defaultdict(list)  # Tracks clip-level anomaly decisions per video
+    video_labels = {}  # Tracks ground truth label for each video
+
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="Evaluating by Video"):
+            frames, labels, metadata = batch  # Unpack frames, labels, and metadata
+            frames = frames.to(device)
+            labels = labels.to(device)
+
+            # Forward pass
+            _, reconstructed = model(frames)
+            mse = torch.mean((frames - reconstructed) ** 2, dim=(1, 2, 3, 4))  # MSE per clip
+
+            # Mark clips as anomalies if MSE exceeds `clip_anomaly_threshold`
+            clip_anomalies = (mse > clip_anomaly_threshold).long()
+
+            # Group clip-level anomalies by video using video_path
+            for i, clip_anomaly in enumerate(clip_anomalies):
+                video_path = metadata["video_path"][i]  # Use the metadata directly
+                video_clip_anomalies[video_path].append(clip_anomaly.item())
+                video_labels[video_path] = labels[i].item()
+
+    # Aggregate clip anomalies to decide video-level anomalies
+    video_predictions = {}
+    for video_path, clip_anomalies in video_clip_anomalies.items():
+        # Check if more than `video_anomaly_ratio` of clips are anomalies
+        anomaly_ratio = sum(clip_anomalies) / len(clip_anomalies)
+        video_predictions[video_path] = int(anomaly_ratio > video_anomaly_ratio)
+
+    # Convert to tensors for evaluation
+    y_pred = torch.tensor(list(video_predictions.values()))
+    y_true = torch.tensor(list(video_labels.values()))
+
+    # Compute metrics
+    metrics = compute_binary_classification_metrics(y_true, y_pred)
+    cm = confusion_matrix(y_true, y_pred, num_classes)
+    jaccard = jaccard_index(y_true, y_pred)
+    metrics["best_threshold"] = clip_anomaly_threshold
+    return {
+        "mean_loss": mse.mean().item(),
+        "jaccard": jaccard,
+        "confusion_matrix": cm,
+        **metrics,  # Include accuracy, precision, recall, f1_score
+    }
+
+
 def list_available_models(snapshot_dir: str):
     """List all available model snapshots, sorted by date."""
     model_paths = glob.glob(f"{snapshot_dir}/*.pth")
@@ -224,6 +425,7 @@ def list_available_models(snapshot_dir: str):
         logger.error("No models found in the snapshot directory.")
         raise FileNotFoundError("No models found in the snapshot directory.")
     return model_paths
+
 
 def select_model(models: list) -> str:
     """Display available models and let the user select one."""
@@ -240,6 +442,7 @@ def select_model(models: list) -> str:
                 logger.warning("Invalid selection. Please choose a valid model number.")
         except ValueError:
             logger.warning("Invalid input. Please enter a number.")
+
 
 def run_validation_evaluation(snapshot_dir: str, device: torch.device):
     """Run evaluation on the test set using a selected model."""

@@ -5,28 +5,19 @@ from utils import setup_logging
 
 
 
-logger = setup_logging(__name__)  # Logger instance for this module
+logger = setup_logging(__name__) 
 
 
 class VideoAutoencoder(nn.Module):
-    def __init__(self, input_channels: int = 3, latent_dim: int = 256) -> None:
-        """
-        Initialize the VideoAutoencoder with encoder and decoder architectures.
-
-        Args:
-            input_channels (int): Number of input channels (default is 3 for RGB).
-            latent_dim (int): Dimensionality of the latent representation.
-        """
+    def __init__(self, input_channels, latent_dim):
         super(VideoAutoencoder, self).__init__()
         self.input_channels = input_channels
         self.latent_dim = latent_dim
 
-        # Calculate dimensions after convolutions
-        # Input: [B, C, T, H, W] = [B, 3, 16, 64, 64]
-        # After 3 maxpool layers: T/8, H/8, W/8
-        self.encoded_dim = 256 * 2 * 8 * 8  # 256 channels * 2 frames * 8x8 spatial
+        # After 2 maxpool layers: T/4, H/4, W/4
+        self.encoded_dim = 128 * 4 * 24 * 24  # Adjusted dimensions after 2 layers
 
-        logger.info("Initializing VideoAutoencoder...")
+        logger.info("Initializing Reduced Complexity VideoAutoencoder with LeakyReLU...")
         logger.debug(f"Input channels: {self.input_channels}")
         logger.debug(f"Latent dimension: {self.latent_dim}")
         logger.debug(f"Encoded tensor dimensions: {self.encoded_dim}")
@@ -35,17 +26,12 @@ class VideoAutoencoder(nn.Module):
         self.encoder = nn.Sequential(
             nn.Conv3d(input_channels, 64, kernel_size=3, padding=1),
             nn.BatchNorm3d(64),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.MaxPool3d(kernel_size=2, stride=2),
 
             nn.Conv3d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm3d(128),
-            nn.ReLU(),
-            nn.MaxPool3d(kernel_size=2, stride=2),
-
-            nn.Conv3d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm3d(256),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
             nn.MaxPool3d(kernel_size=2, stride=2),
 
             nn.Flatten(),
@@ -55,18 +41,16 @@ class VideoAutoencoder(nn.Module):
         # Decoder
         self.decoder = nn.Sequential(
             nn.Linear(latent_dim, self.encoded_dim),
-            nn.Unflatten(1, (256, 2, 8, 8)),
+            nn.Unflatten(1, (128, 4, 24, 24)),
 
-            nn.ConvTranspose3d(256, 128, kernel_size=2, stride=2),
-            nn.BatchNorm3d(128),
-            nn.ReLU(),
-
-            nn.ConvTranspose3d(128, 64, kernel_size=2, stride=2),
+            nn.ConvTranspose3d(128, 64, kernel_size=3, padding=1),
             nn.BatchNorm3d(64),
-            nn.ReLU(),
+            nn.LeakyReLU(negative_slope=0.01),
+            nn.Upsample(scale_factor=2, mode='nearest'),
 
-            nn.ConvTranspose3d(64, input_channels, kernel_size=2, stride=2),
-            nn.Sigmoid()
+            nn.ConvTranspose3d(64, input_channels, kernel_size=3, padding=1),
+            nn.Tanh(),  
+            nn.Upsample(scale_factor=2, mode='nearest')
         )
 
         self._print_model_summary()

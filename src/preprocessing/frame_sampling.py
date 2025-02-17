@@ -71,7 +71,6 @@ def create_offset_samples(input_path: Path, output_dir: Path, version_number: in
 
         # Create a video for each offset
         for i, offset in enumerate(range(num_offsets)):
-            # Generate filename with version number
             current_version = version_number + i
             output_path = output_dir / f"{input_path.stem}_{current_version}{input_path.suffix}"
             output_paths.append(output_path)
@@ -79,7 +78,6 @@ def create_offset_samples(input_path: Path, output_dir: Path, version_number: in
             with video_writer(output_path, target_fps, target_size,
                               is_color=not grayscale) as out:
 
-                # Reset to beginning of video
                 cap.set(cv2.CAP_PROP_POS_FRAMES, offset)
                 frame_count = offset
                 processed_count = 0
@@ -96,7 +94,6 @@ def create_offset_samples(input_path: Path, output_dir: Path, version_number: in
                             break
 
                         if (frame_count - offset) % sampling_interval == 0:
-                            # Process frame
                             if target_size != (frame.shape[1], frame.shape[0]):
                                 frame = cv2.resize(frame, target_size,
                                                    interpolation=cv2.INTER_AREA)

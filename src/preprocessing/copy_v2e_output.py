@@ -23,7 +23,7 @@ def copy_and_convert_videos(base_path: str, logger):
     target_base = base_path / "v2e" / "videos" / "normal"
 
     splits = ["train", "test", "val"]
-    empty_dirs = []  # Track empty directories
+    empty_dirs = []  
 
     for split in splits:
         processed_split_dir = processed_base / split / "processed" / "v2e"
@@ -33,26 +33,21 @@ def copy_and_convert_videos(base_path: str, logger):
             logger.warning(f"Processed directory does not exist: {processed_split_dir}")
             continue
 
-        # Ensure the target directory exists
         target_split_dir.mkdir(parents=True, exist_ok=True)
-
-        # Iterate through all subdirectories in processed\v2e
+        
         for subdir in processed_split_dir.iterdir():
             if not subdir.is_dir():
                 continue
 
-            # Look for the dvs-video.avi file
             dvs_video_file = subdir / "dvs-video.avi"
             if not dvs_video_file.exists():
                 logger.warning(f"Video not found: {dvs_video_file}")
                 empty_dirs.append(subdir)
                 continue
 
-            # Remove '_processed' from the directory name
             clean_name = subdir.name.replace("_processed", "").replace("temp_cropped_", "").replace("cut_", "")
             target_file = target_split_dir / f"{clean_name}.mp4"
 
-            # Check if the target file already exists
             if target_file.exists():
                 logger.info(f"Skipping: {target_file} already exists.")
                 continue
@@ -60,7 +55,6 @@ def copy_and_convert_videos(base_path: str, logger):
             try:
                 rel_dvs_video_file = os.path.relpath(dvs_video_file, base_path)
                 rel_target_file = os.path.relpath(target_file, base_path)
-                # Convert .avi to .mp4 using ffmpeg
                 logger.info(f"Converting and copying: ...{rel_dvs_video_file} -> ...{rel_target_file}")
                 subprocess.run(
                     [
@@ -105,7 +99,7 @@ def prompt_to_remove_empty_dirs(empty_dirs, logger):
     if remove == 'y':
         for dir_path in empty_dirs:
             try:
-                shutil.rmtree(dir_path)  # Forcefully delete the directory
+                shutil.rmtree(dir_path)  
                 logger.info(f"Removed: {dir_path}")
             except Exception as e:
                 logger.error(f"Failed to remove {dir_path}: {e}")
@@ -114,10 +108,8 @@ def prompt_to_remove_empty_dirs(empty_dirs, logger):
 
 
 if __name__ == "__main__":
-    # Set up logging
     logger = setup_logging(__name__)
 
-    # Set the base path for the dataset
     base_path = "../../data/UBI_FIGHTS"
 
     try:
